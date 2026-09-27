@@ -378,3 +378,24 @@ asserts=95 fail=0
 `SKIP_UNIT=1 bash tools/verify.sh` 的输出、`=== ALL GREEN ===` 这一行、浏览器段的每段 rows、
 截图路径、线上 URL 的状态码 —— **本会话一个都没产生**。谁要声称它们，必须先自己跑那一条命令
 （并且本机同一时刻只允许一个 headless Chrome）。
+
+## 线上验收（GitHub Pages，主代理 2026-09-27 实抓，补上上面那句话缺的证据）
+
+发布 sha `695d24b`，CI trigger `6be9db6` → Actions `success`。
+
+主代理门禁：`npm run check` rc=0；node **95 / 0 fail**；浏览器 **187 / 0 fail** 且
+`=== ALL GREEN ===` rc=0。
+
+| 资源 | 结果 |
+| --- | --- |
+| `/`（index.html） | 200 / 3,351 B |
+| `js/main.js` | 200 / 20,893 B |
+| `css/game.css` | 200 / 8,348 B |
+| `js/data/lots.js` | 200 / 17,155 B |
+| `<title>` | 与 README 首行一致（迷津渡） |
+
+一条过程教训，写在这里以免后人把它当成仓库缺陷：本仓两次报出"0 行浏览器断言"都是**测量侧**的假阴。
+第一次是别的代理被杀后留下的孤儿进程占住了 :9348（Chrome）与 5188（`node server.cjs`），
+本仓的单 Chrome 守卫据此拒绝启动（rc=6）；确认两者 PPID 已为 1 且 `lsof` 无 ESTABLISHED 连接后清掉，
+同一轮就跑到 187 行全绿。第二次是审计脚本只认 `rows: N fail: []` 这一种方言，
+对 `rows: N passed: M fail: []` 直接读成 0。断言层从来不是 0。
