@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0b1016">
+<meta name="description" content="迷津渡：把所有人渡到对岸。每一关的最少单程数都是 2^(n+1) 状态图上的广度优先搜索量出来的，船的两种口径（艄公船 / 自由船）都能改变答案。">
+<link rel="icon" href="data:,">
+<title>迷津渡 · FERRY</title>
+<link rel="stylesheet" href="css/game.css">
+</head>
+<body>
+<header class="topbar">
+  <h1 class="brand"><span class="brand-mark">≈</span>迷津渡<small>FERRY</small></h1>
+  <nav class="modes" id="modes" aria-label="模式">
+    <button type="button" data-mode="campaign">战役</button>
+    <button type="button" data-mode="daily">每日</button>
+    <button type="button" data-mode="random">随渡</button>
+  </nav>
+  <p class="totals" id="totals"></p>
+</header>
+
+<main class="stage">
+  <section class="board">
+    <canvas id="lot" aria-label="河面：左右两岸与中间的一条船"></canvas>
+    <p class="hint-line" id="hintline"></p>
+    <div class="curtain" id="curtain" hidden>
+      <div class="curtain-card">
+        <p class="stars" id="stars"></p>
+        <h2 id="verdict"></h2>
+        <p class="tally" id="tally"></p>
+        <div class="curtain-actions">
+          <button type="button" id="again">再渡一次</button>
+          <button type="button" id="next" class="primary">下一渡</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <aside class="panel">
+    <p class="crumbs" id="crumbs"></p>
+    <dl class="readout" id="readout"></dl>
+    <p class="legend" id="legend"></p>
+    <div class="controls">
+      <button type="button" id="undo">退回</button>
+      <button type="button" id="hint">提示</button>
+      <button type="button" id="restart">重开</button>
+      <button type="button" id="share">分享此渡</button>
+    </div>
+    <div class="shelf" id="shelf"></div>
+    <details class="about">
+      <summary>屏幕上的数字从哪来</summary>
+      <p>「最少单程」不是设计者估的，是 <code>js/core/solve.js</code> 在 <code>(船在哪岸, 左岸名单)</code> 的
+        <code>2^(n+1)</code> 状态图上跑分层广度优先搜索量出来的：一次单程计 1，一次来回计 2。
+        「不可解」只在搜索前沿耗尽时才成立（<code>truncated === false</code>），没有按人数特判的任何分支。
+        关卡由 <code>tools/bake.mjs</code> 在构建期生成并复验——浏览器自身不做生成；
+        <code>test/anchors.test.mjs</code> 逐行复现农夫狼羊菜 = 7 单程、M&amp;C 3+3 自由船 = 11 单程、
+        同一副 M&amp;C 3+3 改成艄公船 = 不可解。</p>
+      <p class="law-note">两种船的口径：<b>艄公船</b>要求艄公在船上（另载 0..容量-1 人，独自过河合法）；
+        <b>自由船</b>没有艄公，1..容量任意组合，空船不许开。同一副角色换口径，答案可以从 11 单程变成不可解。</p>
+      <p class="save">成绩只存在这台设备的浏览器里。<button type="button" id="wipe">清空存档</button></p>
+    </details>
+  </aside>
+</main>
+
+<p class="toast" id="toast" hidden></p>
+<script type="module" src="js/main.js"></script>
+</body>
+</html>

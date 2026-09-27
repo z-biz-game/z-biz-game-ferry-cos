@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  # The rule, the solver, the generator and the shipped pool are all pure ES modules: no
+  # browser and no install step. Two rows are the reason this job exists:
+  #   * anchors.test.mjs — the eight rows of the classic crossing table (wolf-goat-cabbage 7,
+  #     M&C 1+1/2+2/3+3 free = 1/5/11, 4+4/5+5 free unsolvable, 1+1/2+2 ferry = 3/7, 3+3/4+4
+  #     ferry unsolvable) are reproduced from hand-written expectations by js/core/solve.js AND
+  #     by a second, independent layer-by-layer search in the same file; every "unsolvable"
+  #     verdict is only accepted when the frontier ran out (`truncated === false`), so no
+  #     clause of the code is allowed to grade its own answer;
+  #   * library.test.mjs — re-solves every level in js/data/lots.js from its serialised spec,
+  #     so a hand-edited par or a stale bake fails the build instead of shipping.
+  unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Syntax
+        run: for f in js/*.js js/*/*.js server.cjs electron/main.cjs tools/*.mjs test/*.mjs; do node --check "$f"; done
+      - name: Suites
+        run: for f in test/*.test.mjs; do echo "::group::$f"; node "$f"; echo "::endgroup::"; done
+
+  # The shell is only proven by driving a real page with real mouse events: the canvas hit
+  # test, the illegal-loading rule and the save file all live behind `window.ferry`.
+  browser:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Headless playtest
+        env:
+          SKIP_UNIT: 1
+          WD_TIMEOUT: 240
+        run: bash tools/verify.sh
