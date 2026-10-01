@@ -280,8 +280,9 @@ def icon_master(size=1024):
     return img
 
 
-def maskable_variant(master):
-    size = master.width
+def maskable_variant(master, size=512):
+    # The manifest declares this entry as 512x512, so this is where that number is honoured:
+    # a 1024 bitmap behind a "512x512" sizes string is a lie the installer reads verbatim.
     bg = radial_bg(size, size, mix(WATER_TOP, BG, 0.5), mix(BG, (0, 0, 0), 0.45)).convert('RGBA')
     inner = master.resize((int(size * 0.80), int(size * 0.80)), Image.LANCZOS)
     bg.alpha_composite(inner, ((size - inner.width) // 2, (size - inner.height) // 2))
