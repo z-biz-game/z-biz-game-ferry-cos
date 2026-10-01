@@ -13,6 +13,12 @@
   --cyan: #78dcff;
   --danger: #ff7060;
   --sand: #4c3f28;
+  /* iOS 上 env() 只有配了 viewport-fit=cover 才不为 0；两样都在，缺一个这四条就恒为 0px。 */
+  --safe-t: env(safe-area-inset-top, 0px);
+  --safe-r: env(safe-area-inset-right, 0px);
+  --safe-b: env(safe-area-inset-bottom, 0px);
+  --safe-l: env(safe-area-inset-left, 0px);
+  --tap: 44px; /* 触摸下限：任何可点的东西都至少这么高（Apple HIG / WCAG 2.5.5） */
   --mono: "SF Mono", "JetBrains Mono", Menlo, Consolas, "PingFang SC", "Hiragino Sans GB", monospace;
   --sans: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", system-ui, sans-serif;
 }
@@ -23,13 +29,27 @@ body {
   background: radial-gradient(120% 100% at 50% 0%, var(--bg-2), var(--bg) 62%);
   color: var(--ink); font-family: var(--sans); -webkit-font-smoothing: antialiased;
   overflow: hidden; user-select: none; cursor: default;
+  padding: var(--safe-t) var(--safe-r) var(--safe-b) var(--safe-l);
+}
+/* 同一张生成器出的水纹铺在页面最底层，图标/纹理/游戏画面因此是同一套像素语言。 */
+body::before {
+  content: ""; position: fixed; inset: 0; pointer-events: none; opacity: 0.05;
+  background: url("../assets/textures/water-night.png");
+  background-size: 256px 256px; mix-blend-mode: screen;
 }
 button { font: inherit; color: inherit; background: none; border: none; cursor: pointer; }
+/* 44px 写两遍：字面量是给不支持自定义属性的旧 WebView 的兜底，var(--tap) 才是同一件事的正身。 */
+button, summary { min-height: 44px; min-height: var(--tap); }
+.modes button, .hud button { min-width: 44px; min-width: var(--tap); }
+.controls button { min-width: 0; }
 
 .topbar { display: flex; align-items: center; gap: 18px; padding: 12px 18px; border-bottom: 1px solid var(--line); }
 .brand { font-size: 16px; letter-spacing: 0.06em; display: flex; align-items: baseline; gap: 8px; font-weight: 600; }
 .brand small { color: var(--ink-dim); font-size: 10px; letter-spacing: 0.28em; font-family: var(--mono); }
-.brand-mark { color: var(--cyan); font-family: var(--mono); }
+/* 标题那一记水波：动效是真的，reduce-motion 里被 `.brand-mark { animation: none }` 关掉的也是真的。
+   周期用秒而不是帧，所以刷新率高低都不改变它的手感。 */
+@keyframes brand-drift { 0%, 100% { opacity: 0.66; transform: translateY(0); } 50% { opacity: 1; transform: translateY(-2px); } }
+.brand-mark { color: var(--cyan); font-family: var(--mono); display: inline-block; animation: brand-drift 3.2s ease-in-out infinite; }
 .modes { display: flex; gap: 4px; }
 .modes button { padding: 6px 14px; font-size: 13px; color: var(--ink-dim); border: 1px solid transparent; border-radius: 6px; }
 .modes button:hover { color: var(--ink); background: rgba(255, 255, 255, 0.04); }
@@ -37,7 +57,9 @@ button { font: inherit; color: inherit; background: none; border: none; cursor: 
 .totals { margin-left: auto; font-size: 12px; color: var(--ink-dim); font-family: var(--mono); }
 .totals b { color: var(--amber); font-weight: 600; }
 
-.stage { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 18px; padding: 18px; height: calc(100% - 53px); }
+/* 顶栏在窄屏会换行，所以高度不靠 calc(100% - 常数)：body 拉成纵向 flex，舞台吃掉剩余空间。 */
+body { display: flex; flex-direction: column; }
+.stage { flex: 1 1 auto; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 18px; padding: 18px; }
 .board { position: relative; display: grid; grid-template-rows: 1fr auto; min-height: 0; }
 #lot {
   width: 100%; height: 100%; min-height: 0; display: block; touch-action: none;
@@ -124,8 +146,38 @@ button { font: inherit; color: inherit; background: none; border: none; cursor: 
   .totals { margin-left: 0; width: 100%; }
 }
 
+/* HUD: 玩法 / 暂停 / 静音 / 全屏，四个都是 44px 见方的真按钮，状态写在 aria-pressed 上。 */
+.hud { display: flex; gap: 4px; margin-left: auto; }
+.hud button {
+  min-width: var(--tap); padding: 8px 10px; font-size: 12px; color: var(--ink-dim);
+  border: 1px solid var(--line); border-radius: 9px; background: rgba(255, 255, 255, 0.03);
+}
+.hud button:hover { color: var(--ink); border-color: rgba(224, 166, 60, 0.45); }
+.hud button[aria-pressed="true"] { color: var(--amber); border-color: rgba(224, 166, 60, 0.55); background: rgba(224, 166, 60, 0.1); }
+.totals { margin-left: 12px; }
+
+/* 玩法说明卡：左对齐的说明书，不是居中的一句口号。 */
+.help-card { width: min(430px, 90%); text-align: left; }
+.help-card h2 { text-align: center; }
+.howto { list-style: none; counter-reset: step; display: grid; gap: 8px; margin: 10px 0 12px; }
+.howto li { counter-increment: step; position: relative; padding-left: 26px; font-size: 12px; line-height: 1.7; color: var(--ink-dim); }
+.howto li::before {
+  content: counter(step); position: absolute; left: 0; top: 1px; width: 19px; height: 19px;
+  display: grid; place-items: center; border-radius: 50%; border: 1px solid rgba(224, 166, 60, 0.45);
+  color: var(--amber); font-family: var(--mono); font-size: 11px;
+}
+.howto b { color: var(--ink); } .howto em { color: var(--danger); font-style: normal; }
+.howto code { color: var(--cyan); font-family: var(--mono); font-size: 11px; }
+.keys { font-size: 11px; color: var(--ink-dim); line-height: 1.8; border-top: 1px solid var(--line); padding-top: 9px; }
+.keys b { color: var(--cyan); font-family: var(--mono); }
+
+/* Paused: the river is literally frozen (the loop is not running), so the frame dims under the card. */
+#lot.frozen { filter: saturate(0.45) brightness(0.7); }
+
 @media (prefers-reduced-motion: reduce) {
-  /* The crossing glide is cosmetic — the counter has already moved — so it is the first thing
-     that goes. Nothing about legality or counting depends on an animation. */
-  #lot { transition: none; }
+  /* 降动效在 CSS 这半边只管装饰性位移；河面涟漪/滑行/抖动那一半在 js/view.js 里按
+     matchMedia 的真分支关掉（reduceMotion()），两边都不是空块。 */
+  * { animation-duration: 0.001ms !important; animation-iteration-count: 1 !important; transition-duration: 0.001ms !important; }
+  .brand-mark { animation: none; }
+  .curtain { backdrop-filter: none; }
 }

@@ -4,9 +4,27 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#0b1016">
+<meta name="color-scheme" content="dark">
 <meta name="description" content="迷津渡：把所有人渡到对岸。每一关的最少单程数都是 2^(n+1) 状态图上的广度优先搜索量出来的，船的两种口径（艄公船 / 自由船）都能改变答案。">
-<link rel="icon" href="data:,">
 <title>迷津渡 · FERRY</title>
+<!-- 图标全部是仓内真 PNG（assets/gen/make_art.py 生成），不是 data: 占位，也不是 SVG 冒充。 -->
+<link rel="icon" type="image/png" sizes="48x48" href="icons/favicon-48.png">
+<link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
+<link rel="icon" type="image/png" sizes="16x16" href="icons/favicon-16.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="迷津渡">
+<meta property="og:type" content="website">
+<meta property="og:title" content="迷津渡 FERRY · 难度是被量出来的">
+<meta property="og:description" content="2^(n+1) 状态图上的分层 BFS 给出每一渡的最少单程；艄公船与自由船两种口径会改变答案。">
+<meta property="og:image" content="icons/og-cover.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="icons/og-cover.png">
 <link rel="stylesheet" href="css/game.css">
 </head>
 <body>
@@ -16,6 +34,12 @@
     <button type="button" data-mode="campaign">战役</button>
     <button type="button" data-mode="daily">每日</button>
     <button type="button" data-mode="random">随渡</button>
+  </nav>
+  <nav class="hud" aria-label="机身控件">
+    <button type="button" id="help" aria-haspopup="dialog" title="玩法说明（H 或 ?）">玩法</button>
+    <button type="button" id="pause" aria-pressed="false" title="暂停（P）">暂停</button>
+    <button type="button" id="mute" aria-pressed="false" title="静音（M）">静音</button>
+    <button type="button" id="fullscreen" aria-pressed="false" title="全屏（F）">全屏</button>
   </nav>
   <p class="totals" id="totals"></p>
 </header>
@@ -32,6 +56,32 @@
         <div class="curtain-actions">
           <button type="button" id="again">再渡一次</button>
           <button type="button" id="next" class="primary">下一渡</button>
+        </div>
+      </div>
+    </div>
+    <div class="curtain" id="pausecard" hidden role="dialog" aria-label="已暂停">
+      <div class="curtain-card">
+        <p class="stars">⏸</p>
+        <h2>河面停了</h2>
+        <p class="tally" id="pause-tally"></p>
+        <div class="curtain-actions">
+          <button type="button" id="resume" class="primary">继续摆渡</button>
+        </div>
+      </div>
+    </div>
+    <div class="curtain" id="helpcard" hidden role="dialog" aria-label="玩法说明">
+      <div class="curtain-card help-card">
+        <h2>怎么渡</h2>
+        <ol class="howto">
+          <li><b>拖一个人到船上</b>（或点它）——装船不计单程；再拖回岸上也不计。</li>
+          <li><b>点船腹，或把船拖到对岸</b>——这才算一次单程，计数器 +1。</li>
+          <li><b>艄公船</b>：艄公必须在船上才能开，独自过河合法。<b>自由船</b>：没有艄公，1..容量任意组合，空船不许开。</li>
+          <li>任何一岸留下<em>没人监管的冲突</em>（狼与羊、主与奴、货与兽……）就不许离岸或不许靠岸。</li>
+          <li>「最少」那一格是 <code>solve.js</code> 跑 BFS 量出来的认证值，不是设计者估的。</li>
+        </ol>
+        <p class="keys">键位：<b>Enter/空格</b> 开船 · <b>P</b> 暂停 · <b>R</b> 重开 · <b>U</b> 退回 · <b>H</b> 提示 · <b>M</b> 静音 · <b>F</b> 全屏 · <b>?</b> 本说明</p>
+        <div class="curtain-actions">
+          <button type="button" id="help-close" class="primary">开始摆渡</button>
         </div>
       </div>
     </div>
@@ -65,5 +115,19 @@
 
 <p class="toast" id="toast" hidden></p>
 <script type="module" src="js/main.js"></script>
+<script>
+  // 离线壳注册。file:// 下整段跳过：那里既没有可注册的 origin，注册失败还会留一条未捕获异常。
+  // 注册失败（内网、隐私模式、旧 WebView）一律吞掉——游戏本身不依赖 service worker。
+  (function () {
+    try {
+      var proto = location.protocol;
+      if (proto !== 'http:' && proto !== 'https:') return;
+      if (!navigator.serviceWorker) return;
+      window.addEventListener('load', function () {
+        try { navigator.serviceWorker.register('sw.js', { scope: './' }).catch(function () {}); } catch (err) {}
+      });
+    } catch (err) { /* no SW here */ }
+  })();
+</script>
 </body>
 </html>
