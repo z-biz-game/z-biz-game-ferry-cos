@@ -24,11 +24,13 @@ jobs:
       # electron shell, the bake tool and the tests out of the artifact. The (bank, mask)
       # state graph is searched at build time by tools/bake.mjs, so nothing has to be
       # generated here beyond js/data/lots.js, which is a source file like any other.
+      # icons/ and assets/ are the output of assets/gen/make_art.py (committed bitmaps):
+      # the manifest, the apple-touch-icon and the canvas textures all point at them.
       - name: Assemble static site
         run: |
           mkdir _site
-          cp index.html _site/
-          cp -r css js _site/
+          cp index.html manifest.webmanifest sw.js _site/
+          cp -r css js icons assets _site/
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
