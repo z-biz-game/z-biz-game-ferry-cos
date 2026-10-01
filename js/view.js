@@ -15,10 +15,28 @@
 import { standing } from './core/game.js';
 
 const PAD = 16;
-const CROSS_MS = 340; // cosmetic only: the state has already moved when the glide starts
-const SHAKE_MS = 340;
-const HINT_MS = 2600;
-const FLARE_MS = 2200;
+// Durations are seconds of *simulation*, not milliseconds of wall clock: the loop advances them
+// by a fixed step (SIM_STEP) however the frames arrive, so a 30Hz tablet and a 120Hz phone glide
+// the same hull over the same water in the same half-second.
+const CROSS_S = 0.34; // cosmetic only: the state has already moved when the glide starts
+const SHAKE_S = 0.34;
+const HINT_S = 2.6;
+const FLARE_S = 2.2;
+const SIM_STEP = 1 / 120;
+const MAX_DT = 0.05; // a tab that slept must not teleport the hull across three crossings
+const RIPPLE_HZ = 0.7; // ripple phase cycles per simulated second
+const PARTICLE_MAX = 48;
+// Bitmaps come from assets/gen/make_art.py; every one of them is optional at draw time (see
+// `artReady`), so a device that cannot fetch them still gets the procedural river it used to.
+const ASSETS = {
+  water: 'assets/textures/water-night.png',
+  sand: 'assets/textures/sand-grain.png',
+  glow: 'assets/textures/glow.png',
+  seal: 'assets/textures/seal.png',
+  tokens: 'assets/sprites/tokens.png',
+};
+const TOKEN_CELL = 128; // ASSETS.tokens is 4 x 128px, indexed by `kind`
+const TOKEN_ORDER = ['ferryman', 'human', 'beast', 'goods'];
 // A hull press that travels less than this is a click on the boat, not a haul. Browsers routinely
 // deliver a pixel or two of jitter between pointerdown and pointerup, and "cast off" must not turn
 // into "nothing happened" because of it. Past the slop the gesture is a haul and only lands if it
@@ -51,6 +69,25 @@ const SKIN = {
 
 function clamp(lo, hi, v) {
   return Math.max(lo, Math.min(hi, v));
+}
+
+// Deterministic jitter (a 32-bit LCG): the wake particles must land in the same place on a 30Hz
+// phone and a 120Hz monitor, and Math.random() would make every frame-rate diff a false positive.
+function lcg(seed) {
+  let x = (seed | 0) || 1;
+  return function next() {
+    x = (Math.imul(x, 1664525) + 1013904223) | 0;
+    return ((x >>> 8) & 0xffffff) / 0x1000000;
+  };
+}
+
+function motionQuery() {
+  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return null;
+  try {
+    return window.matchMedia('(prefers-reduced-motion: reduce)');
+  } catch (err) {
+    return null;
+  }
 }
 
 function roundRect(ctx, x, y, w, h, r) {
@@ -89,11 +126,129 @@ export function createView(canvas, hooks = {}) {
   let geo = null; // last layout, in canvas-local px: what every hit test and the harness read
   let carry = null; // { id, x, y, moved, aboard }
   let haul = null; // boat being dragged: { x0, dx, moved }
-  let glide = null; // { from, to, cargo, until }
-  let shake = null; // { ids, boat, until }
-  let flare = null; // { roles, bank, until, why }
-  let mark = null; // { cargo, until } — the hint's "load these"
+  let glide = null; // { from, to, cargo, t, dur }
+  let shake = null; // { ids, boat, t, dur }
+  let flare = null; // { roles, bank, why, t, dur }
+  let mark = null; // { cargo, t, dur } — the hint's "load these"
+  let particles = []; // { x, y, vx, vy, t, dur, r } — wake behind a travelling hull
   let raf = 0;
+  let paused = false;
+  let lastTs = 0;
+  let animClock = 0; // cosmetic clock the ripples and the hint ring read
+  let simAccumulator = 0; // fixed-step waterline: pause stops it, frame rate cannot move it
+  let simTime = 0;
+  let simSteps = 0;
+  let frames = 0;
+  let fxRnd = lcg(20261001);
+  const art = { water: null, sand: null, glow: null, seal: null, tokens: null };
+  const artReady = { water: false, sand: false, glow: false, seal: false, tokens: false };
+  const patterns = { water: null, sand: null };
+  const reduceMq = motionQuery();
+  let reducedMotion = !!(reduceMq && reduceMq.matches);
+  if (reduceMq) {
+    const onRM = (ev) => {
+      reducedMotion = !!(ev && ev.matches);
+      if (reducedMotion) { glide = null; shake = null; particles = []; } // title art goes still
+      draw();
+    };
+    if (reduceMq.addEventListener) reduceMq.addEventListener('change', onRM);
+    else if (reduceMq.addListener) reduceMq.addListener(onRM);
+  }
+
+  function hasArt(key) {
+    const img = art[key];
+    return !!(artReady[key] && img && img.width > 1 && img.height > 1);
+  }
+
+  function loadArt() {
+    if (typeof Image !== 'function') return;
+    for (const key of Object.keys(ASSETS)) {
+      let img = null;
+      try {
+        img = new Image();
+      } catch (err) {
+        return; // no bitmap path here at all; the procedural river stays
+      }
+      const done = () => { art[key] = img; artReady[key] = true; patterns[key] = null; draw(); };
+      const fail = () => { artReady[key] = false; draw(); };
+      if (img.addEventListener) {
+        img.addEventListener('load', done);
+        img.addEventListener('error', fail);
+      } else {
+        img.onload = done;
+        img.onerror = fail;
+      }
+      img.src = ASSETS[key];
+    }
+  }
+
+  function patternFor(key) {
+    if (patterns[key] !== null) return patterns[key];
+    if (!hasArt(key) || typeof ctx.createPattern !== 'function') return null;
+    try {
+      patterns[key] = ctx.createPattern(art[key], 'repeat');
+    } catch (err) {
+      patterns[key] = false; // asked once, never again
+    }
+    return patterns[key] || null;
+  }
+
+  function effectsLive() {
+    return !!(glide || shake || flare || mark || particles.length);
+  }
+
+  // The only place time enters the renderer. `s` is always SIM_STEP, so a glide that takes
+  // 0.34s takes 41 steps whether the tab paints at 30 or at 120 fps.
+  function stepEffects(s) {
+    if (glide) {
+      glide.t += s;
+      if (glide.t >= glide.dur) glide = null;
+    }
+    if (shake) {
+      shake.t += s;
+      if (shake.t >= shake.dur) shake = null;
+    }
+    if (flare) {
+      flare.t += s;
+      if (flare.t >= flare.dur) flare = null;
+    }
+    if (mark) {
+      mark.t += s;
+      if (mark.t >= mark.dur) mark = null;
+    }
+    for (let i = particles.length - 1; i >= 0; i--) {
+      const q = particles[i];
+      q.t += s;
+      if (q.t >= q.dur) {
+        particles.splice(i, 1);
+        continue;
+      }
+      // dt-integrated drift and damping: `*= 0.96` per frame would drain twice as fast at 120Hz.
+      q.x += q.vx * s;
+      q.y += q.vy * s;
+      const damp = Math.pow(0.24, s);
+      q.vx *= damp;
+      q.vy *= damp;
+    }
+  }
+
+  function spawnWake(bb, dir) {
+    if (reducedMotion) return; // no particles at all under a reduce-motion request
+    const n = 12;
+    for (let i = 0; i < n; i++) {
+      const spread = fxRnd();
+      particles.push({
+        x: bb.x + (dir < 0 ? bb.w : 0),
+        y: bb.y + bb.h * (0.34 + 0.5 * spread),
+        vx: dir * (16 + 26 * fxRnd()),
+        vy: (fxRnd() - 0.5) * 14,
+        t: 0,
+        dur: 0.45 + 0.55 * fxRnd(),
+        r: bb.h * (0.06 + 0.10 * fxRnd()),
+      });
+      if (particles.length > PARTICLE_MAX) particles.shift();
+    }
+  }
 
   // --- geometry --------------------------------------------------------------------
 
@@ -166,7 +321,7 @@ export function createView(canvas, hooks = {}) {
     const here = game.bank;
     let x = g.dock[here];
     if (glide) {
-      const t = clamp(0, 1, 1 - (glide.until - performance.now()) / CROSS_MS);
+      const t = clamp(0, 1, glide.t / glide.dur);
       const e = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
       x = Math.round(glide.from + (glide.to - glide.from) * e);
     }
@@ -211,7 +366,7 @@ export function createView(canvas, hooks = {}) {
 
   // --- the water, the banks, the boat ----------------------------------------------
 
-  function drawWater(now) {
+  function drawWater() {
     const g = geo;
     const { H } = screen;
     const grad = ctx.createLinearGradient(0, 0, 0, H);
@@ -225,13 +380,26 @@ export function createView(canvas, hooks = {}) {
     ctx.fillRect(g.waterX0, 0, Math.max(2, g.pitch * 0.14), H);
     ctx.fillRect(g.waterX1 - Math.max(2, g.pitch * 0.14), 0, Math.max(2, g.pitch * 0.14), H);
 
+    // The generated water bitmap lies under the crests; it is a still texture, so it costs nothing
+    // and it is what makes the river read as painted water rather than as a CSS gradient.
+    const wp = patternFor('water');
+    if (wp) {
+      ctx.save();
+      ctx.globalAlpha = reducedMotion ? 0.20 : 0.30;
+      ctx.fillStyle = wp;
+      ctx.fillRect(g.waterX0, 0, g.waterW, H);
+      ctx.restore();
+    }
     // Ripples: the same deterministic sine on every device, so a screenshot is reproducible.
+    // The phase comes from `animClock` (seconds of simulation), never from a wall-clock `now`,
+    // and reduce-motion freezes it at zero instead of removing the water.
     ctx.strokeStyle = RIPPLE;
     ctx.lineWidth = 1.5;
     const lanes = Math.max(4, Math.floor(H / (g.pitch * 1.1)));
+    const drift = reducedMotion ? 0 : animClock * RIPPLE_HZ;
     for (let k = 0; k < lanes; k++) {
       const y = Math.round(((k + 0.5) * H) / lanes);
-      const phase = (now / 1400 + k * 0.37) % 1;
+      const phase = (drift + k * 0.37) % 1;
       ctx.beginPath();
       for (let x = g.waterX0 + 4; x <= g.waterX1 - 4; x += 6) {
         const yy = y + Math.sin((x / (28 + k * 3)) + phase * Math.PI * 2) * (g.pitch * 0.07);
@@ -250,6 +418,15 @@ export function createView(canvas, hooks = {}) {
     ctx.fillStyle = SAND;
     roundRect(ctx, inner.x, inner.y, inner.w, inner.h, 12);
     ctx.fill();
+    const sp = patternFor('sand');
+    if (sp) {
+      ctx.save();
+      ctx.globalAlpha = 0.5;
+      ctx.fillStyle = sp;
+      roundRect(ctx, inner.x, inner.y, inner.w, inner.h, 12);
+      ctx.fill();
+      ctx.restore();
+    }
     ctx.strokeStyle = SAND_EDGE;
     ctx.lineWidth = 2;
     ctx.stroke();
@@ -286,17 +463,27 @@ export function createView(canvas, hooks = {}) {
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText(bank === 0 ? '此岸' : '彼岸', inner.x + inner.w / 2, inner.y + 12);
+
+    // The painter's seal sits on the far bank: one small bitmap, and it is the same 朱印 that is
+    // stamped into the app icon.
+    if (bank === 1 && hasArt('seal')) {
+      const side = Math.max(18, Math.min(g.pitch * 1.5, inner.w * 0.6));
+      ctx.save();
+      ctx.globalAlpha = 0.85;
+      ctx.drawImage(art.seal, inner.x + inner.w - side - 4, inner.y + inner.h - side - 4, side, side);
+      ctx.restore();
+    }
   }
 
-  function drawBoat(bb, now) {
+  function drawBoat(bb) {
     const g = geo;
     const deck = bb.y + g.boatH * 0.52;
     ctx.save();
-    if (shake && shake.boat && now < shake.until) {
-      const k = (shake.until - now) / SHAKE_MS;
-      ctx.translate(Math.sin(now / 24) * 5 * k, 0);
+    if (shake && shake.boat) {
+      const k = 1 - shake.t / shake.dur;
+      ctx.translate(Math.sin(animClock * 42) * 5 * k, 0);
     }
-    if (glide) {
+    if (glide && !reducedMotion) {
       // Wake behind the hull while it travels.
       ctx.strokeStyle = 'rgba(190, 224, 248, 0.22)';
       ctx.lineWidth = 2;
@@ -331,16 +518,47 @@ export function createView(canvas, hooks = {}) {
       ctx.lineTo(bb.x + 11 + slot * k, bb.y + bb.h - 6);
       ctx.stroke();
     }
-    // A lantern at the bow tells which way the boat points.
+    // A lantern at the bow tells which way the boat points. The generated glow sprite is the
+    // halo; the disc on top of it stays procedural so it never blurs out at small sizes.
     const bow = game.bank === 1 ? bb.x + bb.w - 6 : bb.x + 6;
+    const lr = Math.max(2.5, g.pitch * 0.09);
+    if (hasArt('glow')) {
+      const halo = lr * (reducedMotion ? 5 : 6.4);
+      ctx.save();
+      ctx.globalAlpha = 0.55;
+      ctx.drawImage(art.glow, bow - halo / 2, deck - 9 - halo / 2, halo, halo);
+      ctx.restore();
+    }
     ctx.fillStyle = 'rgba(224, 166, 60, 0.8)';
     ctx.beginPath();
-    ctx.arc(bow, deck - 9, Math.max(2.5, g.pitch * 0.09), 0, Math.PI * 2);
+    ctx.arc(bow, deck - 9, lr, 0, Math.PI * 2);
     ctx.fill();
     ctx.restore();
   }
 
-  function drawRole(id, pos, now) {
+  // The wake, drawn over the water but under the crew: soft amber-white specks that drift off
+  // the stern. Positions were integrated in stepEffects(), so this loop only reads state.
+  function drawParticles() {
+    if (!particles.length) return;
+    ctx.save();
+    for (const q of particles) {
+      const k = 1 - q.t / q.dur;
+      const r = q.r * (0.6 + 0.8 * (1 - k));
+      if (hasArt('glow')) {
+        ctx.globalAlpha = 0.34 * k;
+        ctx.drawImage(art.glow, q.x - r, q.y - r, r * 2, r * 2);
+      } else {
+        ctx.globalAlpha = 0.26 * k;
+        ctx.fillStyle = 'rgba(190, 224, 248, 0.9)';
+        ctx.beginPath();
+        ctx.arc(q.x, q.y, r, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+    ctx.restore();
+  }
+
+  function drawRole(id, pos) {
     const g = geo;
     const comp = g.comp;
     const r = Math.max(8, Math.min(g.pitch * 0.42, pos.r || g.pitch * 0.42));
@@ -349,13 +567,13 @@ export function createView(canvas, hooks = {}) {
     let y = pos.y;
     let alpha = 1;
     if (carry && carry.id === id) return; // drawn last, under the finger
-    if (shake && shake.ids.indexOf(id) >= 0 && now < shake.until) {
-      x += Math.sin(now / 22) * 4 * ((shake.until - now) / SHAKE_MS);
+    if (shake && shake.ids.indexOf(id) >= 0) {
+      x += Math.sin(animClock * 46) * 4 * (1 - shake.t / shake.dur);
     }
     if (pos.bank !== undefined && pos.bank !== game.bank) alpha = 0.45; // out of reach, same rule
     if (glide && glide.cargo.indexOf(id) >= 0) alpha = 1;
-    if (mark && now < mark.until && mark.cargo.indexOf(id) >= 0) {
-      const t = (now % 900) / 900;
+    if (mark && mark.cargo.indexOf(id) >= 0) {
+      const t = reducedMotion ? 0.5 : (animClock % 0.9) / 0.9;
       ctx.strokeStyle = `rgba(120, 220, 255, ${(0.9 - t * 0.5).toFixed(3)})`;
       ctx.lineWidth = 2 + t * 3;
       ctx.beginPath();
@@ -364,6 +582,29 @@ export function createView(canvas, hooks = {}) {
     }
     ctx.save();
     ctx.globalAlpha = alpha;
+    const cell = TOKEN_ORDER.indexOf(kind);
+    if (cell >= 0 && hasArt('tokens')) {
+      // The generated sheet is the same token the app icon is built from; the letter below is
+      // still painted on top, so legibility never depends on a bitmap having arrived.
+      ctx.drawImage(art.tokens, cell * TOKEN_CELL, 0, TOKEN_CELL, TOKEN_CELL, x - r, y - r, r * 2, r * 2);
+      ctx.restore();
+      ctx.save();
+      ctx.globalAlpha = alpha;
+      ctx.fillStyle = INK;
+      ctx.font = `700 ${Math.max(9, Math.round(r * 1.05))}px "PingFang SC", "Hiragino Sans GB", system-ui, sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(comp.short[id], x, y + r * 0.28);
+      ctx.restore();
+      if (flare && flare.roles.indexOf(id) >= 0) {
+        ctx.strokeStyle = DANGER;
+        ctx.lineWidth = 2.5;
+        ctx.beginPath();
+        ctx.arc(x, y, r + 5, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      return;
+    }
     ctx.fillStyle = SKIN[kind] || SKIN.human;
     ctx.beginPath();
     ctx.arc(x, y, r, 0, Math.PI * 2);
@@ -371,8 +612,8 @@ export function createView(canvas, hooks = {}) {
     ctx.strokeStyle = 'rgba(12, 16, 22, 0.55)';
     ctx.lineWidth = 1.5;
     ctx.stroke();
-    // Kind marks, all procedural: ears for beasts, a crate corner for goods, an oar for the
-    // boatman (the only one who may cast off under the 'ferry' law), a hood for humans.
+    // Fallback kind marks, all procedural: ears for beasts, a crate corner for goods, an oar for
+    // the boatman (the only one who may cast off under the 'ferry' law), a hood for humans.
     ctx.strokeStyle = 'rgba(12, 16, 22, 0.6)';
     if (kind === 'beast') {
       ctx.fillStyle = ctx.strokeStyle;
@@ -404,7 +645,7 @@ export function createView(canvas, hooks = {}) {
     ctx.fillText(comp.short[id], x, y + r * 0.28);
     ctx.restore();
 
-    if (flare && now < flare.until && flare.roles.indexOf(id) >= 0) {
+    if (flare && flare.roles.indexOf(id) >= 0) {
       ctx.strokeStyle = DANGER;
       ctx.lineWidth = 2.5;
       ctx.beginPath();
@@ -436,12 +677,12 @@ export function createView(canvas, hooks = {}) {
     }
   }
 
-  function drawFlareText(now) {
-    if (!flare || now >= flare.until) return;
+  function drawFlareText() {
+    if (!flare) return;
     const g = geo;
     const text = flare.why;
     ctx.save();
-    ctx.globalAlpha = clamp(0, 1, (flare.until - now) / 700);
+    ctx.globalAlpha = clamp(0, 1, 1 - flare.t / flare.dur);
     ctx.fillStyle = DANGER;
     ctx.font = `700 ${Math.max(10, Math.round(g.pitch * 0.32))}px "PingFang SC", "Hiragino Sans GB", system-ui, sans-serif`;
     ctx.textAlign = 'center';
@@ -453,23 +694,23 @@ export function createView(canvas, hooks = {}) {
   }
 
   function draw() {
-    const now = performance.now();
     ctx.clearRect(0, 0, screen.W, screen.H);
     if (!game) return;
     geo = layout();
     const bb = boatBox();
-    drawWater(now);
+    drawWater();
     drawBank(0);
     drawBank(1);
-    drawBoat(bb, now);
+    drawParticles();
+    drawBoat(bb);
     const st = standing(game);
-    for (const id of st.boat) drawRole(id, roleAt(id), now);
+    for (const id of st.boat) drawRole(id, roleAt(id));
     // `st.left`/`st.right` already follow the committed mask, so a crew that is mid-glide is
     // drawn from roleAt(), which pins them to the travelling hull.
-    for (const id of st.left) if (st.boat.indexOf(id) < 0) drawRole(id, roleAt(id), now);
-    for (const id of st.right) if (st.boat.indexOf(id) < 0) drawRole(id, roleAt(id), now);
+    for (const id of st.left) if (st.boat.indexOf(id) < 0) drawRole(id, roleAt(id));
+    for (const id of st.right) if (st.boat.indexOf(id) < 0) drawRole(id, roleAt(id));
     drawCarry();
-    drawFlareText(now);
+    drawFlareText();
     // Empty-seat count while loading: the panel prints the numbers, the canvas only shows room.
     if (game.boat.length && !glide) {
       ctx.fillStyle = DIM;
@@ -482,16 +723,32 @@ export function createView(canvas, hooks = {}) {
 
   function frame(now) {
     raf = requestAnimationFrame(frame);
-    const moving = !!(glide || shake || flare || mark || carry || haul);
-    if (glide && now >= glide.until) glide = null;
-    if (shake && now >= shake.until) shake = null;
-    if (flare && now >= flare.until) flare = null;
-    if (mark && now >= mark.until) mark = null;
-    // Redraw when something is actually moving; an idle river costs nothing. The `moving` half of
-    // the test is the frame that *ends* an animation: without it the river freezes on the last
-    // glide frame, which still pins the landed crew to the hull and paints the hint ring after the
-    // hint expired — a picture that contradicts the panel next to it.
-    if (moving || glide || shake || flare || mark || carry || haul) draw();
+    // Paused: the accumulator is not fed at all, so no effect ages and nothing is repainted.
+    // `lastTs` still follows the clock, otherwise resuming would book the whole pause as one
+    // enormous frame and the hull would jump.
+    if (paused) {
+      lastTs = now;
+      return;
+    }
+    const dt = lastTs ? clamp(0, MAX_DT, (now - lastTs) / 1000) : 0;
+    lastTs = now;
+    const moving = !!(carry || haul);
+    if (dt > 0) {
+      frames += 1;
+      animClock += dt; // cosmetic clock: still eats the frame dt, which is what it is for
+      simAccumulator += dt;
+      while (simAccumulator >= SIM_STEP) {
+        simAccumulator -= SIM_STEP;
+        simTime += SIM_STEP;
+        simSteps += 1;
+        stepEffects(SIM_STEP);
+      }
+    }
+    // Redraw when something is actually moving; an idle river costs nothing. The `effectsLive()`
+    // half of the test is the frame that *ends* an animation: without it the river freezes on the
+    // last glide frame, which still pins the landed crew to the hull and paints the hint ring
+    // after the hint expired — a picture that contradicts the panel next to it.
+    if (moving || effectsLive()) draw();
   }
 
   // --- gestures -------------------------------------------------------------------
@@ -524,11 +781,24 @@ export function createView(canvas, hooks = {}) {
     return within(p.x, p.y, seatBox(boatBox()));
   }
 
-  // How far from a role's centre a press still counts as that role. Wider than the drawn circle on
-  // purpose — a finger is not a pixel — and published through `reach()` below so the harness can
-  // prove the point it calls "open water" clears it, instead of guessing at this expression.
+  // How far from a role's centre a press still counts as that role. On a coarse pointer the floor
+  // is 22px, i.e. a 44px disc — the same touch minimum the DOM buttons obey — because a drawn
+  // circle of 8px is not a thing a thumb can hit. Published through `reach()` below so the harness
+  // can prove the point it calls "open water" clears it, instead of guessing at this expression.
   function hitReach() {
-    return geo ? Math.max(11, geo.pitch * 0.5) : 11;
+    const floor = coarsePointer() ? 22 : 14;
+    return geo ? Math.max(floor, geo.pitch * 0.5) : floor;
+  }
+
+  function coarsePointer() {
+    if (typeof window === 'undefined') return false;
+    if (typeof window.matchMedia === 'function') {
+      try {
+        const mq = window.matchMedia('(pointer: coarse)');
+        if (mq && typeof mq.matches === 'boolean') return mq.matches;
+      } catch (err) { /* fall through to the touch-point test */ }
+    }
+    return !!(window.navigator && window.navigator.maxTouchPoints > 0);
   }
 
   function capture(ev) {
@@ -541,11 +811,11 @@ export function createView(canvas, hooks = {}) {
   }
 
   function busy() {
-    return !!(glide && performance.now() < glide.until);
+    return !!(glide && glide.t < glide.dur);
   }
 
   function down(ev) {
-    if (!game || game.done || busy()) return;
+    if (!game || game.done || paused || busy()) return;
     const p = local(ev);
     const bb = boatBox();
     const deck = bb.y + geo.boatH * 0.5;
@@ -623,6 +893,8 @@ export function createView(canvas, hooks = {}) {
     }
   }
 
+  loadArt();
+
   canvas.addEventListener('pointerdown', down);
   canvas.addEventListener('pointermove', move);
   canvas.addEventListener('pointerup', up);
@@ -646,6 +918,8 @@ export function createView(canvas, hooks = {}) {
       shake = null;
       flare = null;
       mark = null;
+      particles = [];
+      fxRnd = lcg(20261001);
       measure();
     },
     detach() {
@@ -659,27 +933,28 @@ export function createView(canvas, hooks = {}) {
     // ride it. `cargo` are the ids that actually moved.
     crossed(from, cargo) {
       if (!geo) return;
+      // reduce-motion keeps the *fact* of the crossing (the state already moved) and drops the
+      // travel: no glide, no wake, no ripple animation.
+      if (reducedMotion) { draw(); return; }
       glide = {
         from: geo.dock[from], to: geo.dock[game.bank], cargo: (cargo || []).slice(),
-        until: performance.now() + CROSS_MS,
+        t: 0, dur: CROSS_S,
       };
+      spawnWake(boatBox(), geo.dock[game.bank] > geo.dock[from] ? -1 : 1);
       draw();
     },
 
     // Core said no. Two flavours of feedback, both deliberately non-counting.
     reject({ ids, boat, conflict }) {
-      shake = { ids: ids || [], boat: !!boat, until: performance.now() + SHAKE_MS };
+      if (!reducedMotion) shake = { ids: ids || [], boat: !!boat, t: 0, dur: SHAKE_S };
       if (conflict) {
-        flare = {
-          roles: conflict.roles || [], bank: conflict.bank, why: conflict.why,
-          until: performance.now() + FLARE_MS,
-        };
+        flare = { roles: conflict.roles || [], bank: conflict.bank, why: conflict.why, t: 0, dur: FLARE_S };
       }
       draw();
     },
 
     showHint(cargo) {
-      mark = { cargo: (cargo || []).slice(), until: performance.now() + HINT_MS };
+      mark = { cargo: (cargo || []).slice(), t: 0, dur: HINT_S };
       draw();
     },
 
@@ -688,6 +963,55 @@ export function createView(canvas, hooks = {}) {
       shake = null;
       draw();
     },
+
+    // Everything time-based lives here, so "重开" can actually empty it: the counters, the wake,
+    // the glide that is still carrying a crew, the hint ring. Numbers go back to zero, which is
+    // what window.ferry.clock() is for.
+    reset() {
+      glide = null;
+      shake = null;
+      flare = null;
+      mark = null;
+      particles = [];
+      carry = null;
+      haul = null;
+      animClock = 0;
+      simAccumulator = 0;
+      simTime = 0;
+      simSteps = 0;
+      frames = 0;
+      lastTs = 0;
+      fxRnd = lcg(20261001);
+      draw();
+    },
+
+    setPaused(v) {
+      paused = !!v;
+      lastTs = 0; // the frame after a resume must not book the pause as one huge dt
+      if (!paused) draw();
+      return paused;
+    },
+
+    clock() {
+      return {
+        animClock,
+        simTime,
+        simSteps,
+        simAccumulator,
+        frames,
+        paused,
+        reducedMotion,
+        particles: particles.length,
+        glide: glide ? Math.round((glide.t / glide.dur) * 1000) / 1000 : 0,
+        shake: shake ? Math.round((shake.t / shake.dur) * 1000) / 1000 : 0,
+        mark: mark ? Math.round((mark.t / mark.dur) * 1000) / 1000 : 0,
+        flare: flare ? Math.round((flare.t / flare.dur) * 1000) / 1000 : 0,
+        simStep: SIM_STEP,
+        art: Object.keys(ASSETS).filter(hasArt).join(','),
+      };
+    },
+
+    reduceMotion() { return reducedMotion; },
 
     // ---- what an automated finger presses (see tools/playtest.mjs @pointer) ----
     // Client-space centre of a role wherever it stands — bank, boat, or riding a glide.

@@ -15,6 +15,7 @@ import {
 } from './core/library.js';
 import { hashSeed, todayKey } from './core/rng.js';
 import { createView } from './view.js';
+import { audio } from './audio.js';
 
 const $ = (id) => document.getElementById(id);
 const el = {
@@ -23,10 +24,14 @@ const el = {
   stars: $('stars'), verdict: $('verdict'), tally: $('tally'), undo: $('undo'), hint: $('hint'),
   restart: $('restart'), share: $('share'), next: $('next'), again: $('again'), toast: $('toast'),
   canvas: $('lot'), wipe: $('wipe'),
+  help: $('help'), pause: $('pause'), mute: $('mute'), fullscreen: $('fullscreen'),
+  pausecard: $('pausecard'), pauseTally: $('pause-tally'), resume: $('resume'),
+  helpcard: $('helpcard'), helpClose: $('help-close'),
 };
 
 const LEVELS = ALL.length;
 const app = {
+  paused: false,
   mode: 'campaign',
   index: 1,
   route: null,
@@ -267,8 +272,10 @@ function boardRole(id) {
   const r = board(app.game, id);
   if (!r.ok) {
     view.reject({ ids: [id], boat: false });
+    audio.play('reject');
     say(faultText(r));
   } else {
+    audio.play('board');
     view.clearFlare();
     const law = lawOf(app.lot.law);
     const need = app.game.comp.rule === 'ferry' && !standing(app.game).boat.includes(app.game.comp.ferryman)
@@ -281,6 +288,7 @@ function boardRole(id) {
 
 function unboardRole(id) {
   const ok = unboard(app.game, id);
+  audio.play(ok ? 'unboard' : 'reject');
   say(ok ? `${name(id)} 下船 · 仍然不计单程` : `${name(id)} 不在船上`);
   renderCrumbs();
   return ok;
@@ -296,11 +304,13 @@ function departNow() {
   const r = depart(g);
   if (!r.ok) {
     view.reject({ ids: (r.conflict && r.conflict.roles) || loaded, boat: true, conflict: r.conflict || null });
+    audio.play('reject');
     say(faultText(r));
     renderCrumbs();
     return r;
   }
   view.crossed(from, r.cargo);
+  audio.play(g.done ? 'win' : 'depart');
   renderCrumbs();
   if (g.done) finish();
   else {
@@ -361,6 +371,9 @@ function apply() {
   app.game = createGame(r.lot);
   app.hints = 0;
   view.attach(app.game);
+  view.reset();
+  setPaused(false);
+  setHelp(false);
   el.curtain.hidden = true;
   say(`${lawOf(r.lot.law).name}：${lawOf(r.lot.law).rule} —— ${lawOf(r.lot.law).note}`);
   render();
@@ -415,18 +428,108 @@ el.hint.addEventListener('click', () => {
   renderCrumbs();
 });
 
+// 重开 resets *everything* time-based too, not just the rule state: the view's animation clock,
+// the fixed-step accumulator, the wake particles and the in-flight glide all go back to zero
+// (see view.reset()), so a replay never inherits a half-travelled hull or a stale hint ring.
 function restart() {
   reset(app.game);
   app.hints = 0;
   el.curtain.hidden = true;
   view.attach(app.game); // clears the glide/shake effects as well as the state
+  view.reset();
   render();
   say('回到起点');
+}
+
+function setPaused(next) {
+  const want = !!next;
+  if (want === app.paused) return app.paused;
+  app.paused = want;
+  view.setPaused(want);
+  audio.setPaused(want);
+  el.canvas.classList.toggle('frozen', want);
+  el.pause.setAttribute('aria-pressed', String(want));
+  el.pause.textContent = want ? '继续' : '暂停';
+  el.pausecard.hidden = !want;
+  if (want) {
+    const c = view.clock();
+    el.pauseTally.innerHTML = `暂停在 <b>${app.game.moves}</b> 单程 · 河面时间 <b>${c.simTime.toFixed(2)}s</b>`
+      + ` · 定步长 <b>${c.simSteps}</b> 步（累加器已停，恢复后从这里继续）`;
+  }
+  say(want ? '河面停了 · 按 P 或点「继续」接着摆渡' : '继续摆渡');
+  return app.paused;
+}
+
+function setMuted(next) {
+  const want = !!next;
+  audio.unlock();
+  audio.setMuted(want);
+  store.setSetting('muted', want);
+  el.mute.setAttribute('aria-pressed', String(want));
+  el.mute.textContent = want ? '已静音' : '静音';
+  const st = audio.state();
+  say(want
+    ? `已静音 · AudioContext = ${st.contextState}（静音期间不再新建任何振荡器）`
+    : `恢复声音 · AudioContext = ${st.contextState}`);
+  return want;
+}
+
+function fullscreenElement() {
+  return document.fullscreenElement || document.webkitFullscreenElement || null;
+}
+
+function setFullscreen(next) {
+  const want = !!next;
+  const cur = !!fullscreenElement();
+  if (want === cur) return want;
+  try {
+    if (want) {
+      const req = document.documentElement.requestFullscreen || document.documentElement.webkitRequestFullscreen;
+      if (!req) { toast('这台设备不给出全屏接口'); return false; }
+      const p = req.call(document.documentElement);
+      if (p && p.catch) p.catch(() => toast('全屏被拒绝（浏览器策略）'));
+    } else {
+      const exit = document.exitFullscreen || document.webkitExitFullscreen;
+      if (exit) {
+        const p = exit.call(document);
+        if (p && p.catch) p.catch(() => {});
+      }
+    }
+  } catch (err) {
+    toast('全屏不可用：' + (err && err.message ? err.message : err));
+  }
+  return want;
+}
+
+function syncFullscreen() {
+  const on = !!fullscreenElement();
+  el.fullscreen.setAttribute('aria-pressed', String(on));
+  el.fullscreen.textContent = on ? '退出全屏' : '全屏';
+  view.measure(); // the canvas just changed size; the layout has to follow within the same frame
+}
+
+function setHelp(open) {
+  const want = !!open;
+  el.helpcard.hidden = !want;
+  el.help.setAttribute('aria-pressed', String(want));
+  if (want) store.setSetting('seenHelp', true);
+  return want;
 }
 
 el.restart.addEventListener('click', restart);
 el.share.addEventListener('click', shareLink);
 el.again.addEventListener('click', restart);
+el.help.addEventListener('click', () => setHelp(el.helpcard.hidden));
+el.helpClose.addEventListener('click', () => { setHelp(false); audio.play('ui'); });
+el.pause.addEventListener('click', () => setPaused(!app.paused));
+el.resume.addEventListener('click', () => setPaused(false));
+el.mute.addEventListener('click', () => setMuted(!audio.isMuted()));
+el.fullscreen.addEventListener('click', () => setFullscreen(!fullscreenElement()));
+document.addEventListener('fullscreenchange', syncFullscreen);
+document.addEventListener('webkitfullscreenchange', syncFullscreen);
+// Browsers only let an AudioContext be born (or wake) inside a real gesture, so the first press
+// anywhere is what unlocks it; every later sound is free to play.
+window.addEventListener('pointerdown', () => audio.unlock(), { once: true });
 el.next.addEventListener('click', () => go(`#/c/${Math.min(LEVELS, app.index + 1)}`));
 
 // Wiping the save is the one destructive thing this game can do, so it asks twice instead of
@@ -450,8 +553,25 @@ window.addEventListener('resize', () => view.measure());
 window.addEventListener('keydown', (ev) => {
   if (ev.metaKey || ev.ctrlKey || ev.altKey) return;
   const k = ev.key.toLowerCase();
-  if (k === 'escape' && !el.curtain.hidden) el.curtain.hidden = true;
-  else if (k === 'u') el.undo.click();
+  if (k === '?' || (k === '/' && ev.shiftKey)) {
+    ev.preventDefault();
+    setHelp(el.helpcard.hidden);
+    return;
+  }
+  if (k === 'm') { ev.preventDefault(); setMuted(!audio.isMuted()); return; }
+  if (k === 'f') { ev.preventDefault(); setFullscreen(!fullscreenElement()); return; }
+  if (k === 'p') { ev.preventDefault(); setPaused(!app.paused); return; }
+  if (k === 'escape') {
+    if (!el.helpcard.hidden) setHelp(false);
+    else if (app.paused) setPaused(false);
+    else if (!el.curtain.hidden) el.curtain.hidden = true;
+    return;
+  }
+  // While the river is frozen no gesture may move the simulation — the pointer path is gated in
+  // js/view.js (`down`), and this is the same gate on the keyboard path.
+  if (app.paused || !el.helpcard.hidden) return;
+  audio.unlock();
+  if (k === 'u') el.undo.click();
   else if (k === 'h') el.hint.click();
   else if (k === 'r') el.restart.click();
   else if (k === 'enter' || k === ' ') {
@@ -461,6 +581,15 @@ window.addEventListener('keydown', (ev) => {
     departNow();
   }
 });
+
+// Volume is save data: a device that remembers the score but forgets the mute has not remembered
+// much. The context is still created lazily on the first gesture, so this only sets the flag.
+if (store.settings.muted) {
+  audio.setMuted(true);
+  el.mute.setAttribute('aria-pressed', 'true');
+  el.mute.textContent = '已静音';
+}
+if (!store.settings.seenHelp) setHelp(true); // 首启就把玩法说明摆出来，读完即记账，不再打扰
 
 view.start();
 // Deliberately not paused on visibilitychange: the crossing glide, the shake and the win card are
@@ -494,6 +623,13 @@ window.ferry = {
       routes: lot && lot.routes,
       states: lot && lot.states,
       trips: g ? g.moves : 0,
+      paused: app.paused,
+      muted: audio.isMuted(),
+      audible: audio.audible(),
+      audio: audio.state(),
+      sound: { ...audio.stats },
+      clock: view.clock(),
+      reduceMotion: view.reduceMotion(),
       hints: app.hints,
       done: !!(g && g.done),
       busy: view.busy(),
@@ -540,6 +676,14 @@ window.ferry = {
   unboard(id) { return unboardRole(id); },
   cross() { return departNow(); },
   undoStep() { el.undo.click(); return app.game.moves; },
+  // Machine-room switches, so a harness can prove pause/mute/restart behave rather than read HTML.
+  setPaused(v) { return setPaused(v === undefined ? !app.paused : !!v); },
+  setMuted(v) { return setMuted(v === undefined ? !audio.isMuted() : !!v); },
+  setFullscreen(v) { return setFullscreen(v === undefined ? !fullscreenElement() : !!v); },
+  setHelp(v) { return setHelp(v === undefined ? el.helpcard.hidden : !!v); },
+  restartLot() { restart(); return { trips: app.game.moves, hints: app.hints, clock: view.clock() }; },
+  clock() { return view.clock(); },
+  audioState() { return { ...audio.state(), ...audio.stats }; },
   hintOnce() { el.hint.click(); return { hints: app.hints, line: el.hintline.textContent }; },
   store,
   // Client-space coordinates: an automated finger presses these instead of redoing the geometry.
