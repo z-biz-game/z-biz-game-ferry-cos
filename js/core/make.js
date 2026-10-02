@@ -5,15 +5,16 @@
 // DESIGN.md 3.3. Nothing shipped imports this file.
 //
 // Why it mutates instead of scattering. `scatter()` below is the obvious generator and
-// `test/balance.mjs` measures it: about 46% of random casts are solvable at all, which sounds
-// fine until you look at *where* they land. Out of 4000 samples the top band (13-15 trips) came
-// back 17 times — 0.4% — because a long route is not random: it needs a chain of roles that each
-// force the boat to come back. So the shipped generator starts from a classic cast whose answer
-// is already known (wolf-goat-cabbage is 7, M&C 3+3 free is 11) and applies local mutations,
-// re-measuring with the BFS solver after every one and keeping it only if the measured number went
-// *up* toward that level's target — with a small, bounded allowance for steps that measure the
-// same number, because pure hill-climbing collapses a band onto three castes (measured: 60 seeds,
-// 14 distinct top-band levels). Measured acceptance: `node test/balance.mjs`.
+// `test/balance.mjs` measures it — 2026-09-27 run, top band (13-15 single trips): 2 016 probes,
+// 1.0% of them landed in the band and 35.1% were measured unsolvable outright. A long route is
+// not random: it needs a chain of roles that each force the boat to come back. So the shipped
+// generator starts from a classic cast whose answer is already known (wolf-goat-cabbage is 7,
+// M&C 3+3 free is 11) and applies local mutations, re-measuring with the BFS solver after every
+// one and keeping it only if the measured number went *up* toward that level's target — with a
+// small, bounded allowance for steps that measure the same number, because pure hill-climbing
+// collapses a band onto a handful of shapes. What the shipped ladder (lateral allowance included)
+// actually yields, same run: 8 distinct 题面 out of 60 seeds in `shoal`, 36 out of 60 in
+// `labyrinth` — the `唯一题面` column. Measured acceptance: `node test/balance.mjs`.
 //
 // That rule buys three things at once: every level is solvable (verified after every step), every
 // accepted mutation is one the search agreed to, and the band you play in is a measured number
