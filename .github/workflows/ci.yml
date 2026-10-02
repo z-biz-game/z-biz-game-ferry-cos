@@ -31,6 +31,12 @@ jobs:
         run: for f in js/*.js js/*/*.js server.cjs electron/main.cjs tools/*.mjs test/*.mjs; do node --check "$f"; done
       - name: Suites
         run: for f in test/*.test.mjs; do echo "::group::$f"; node "$f"; echo "::endgroup::"; done
+      # The sixth gate, byte for byte the command a contributor runs locally (`npm run doctest`,
+      # and the same call inside `tools/verify.sh`): every number printed into README / DESIGN /
+      # deliverable is compared against what the code reports right now, and each parse carries an
+      # anti-no-op row-count assertion so "the regex matched nothing" can never read as green.
+      - name: Doc numbers
+        run: node tools/doctest.mjs
 
   # The shell is only proven by driving a real page with real mouse events: the canvas hit
   # test, the illegal-loading rule and the save file all live behind `window.ferry`.

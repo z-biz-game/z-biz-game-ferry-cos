@@ -68,7 +68,7 @@ node 95 条 / 浏览器 116 条、fail 0（2026-10-02 重跑口径），输出�
 | `js/core/library.js` | 查表：`ALL`(24) / `TIERS` / `LAWS` / `byId` / `campaign` / `levelAt` / `randomLot` / `dailyLot` / `stats()` | `test/library.test.mjs`(9)：24 行**从序列化 spec 重解**复现 `par`/`routes`/`explored`、`law` 与 `boat.rule` 双向一致、四档不重叠且 `order` 连续、每档两种船与两个家族的实际计数、每日题 = `hashSeed("daily|<day>") % 24` 的算术可复算 |
 | `js/core/storage.js` | localStorage 存档 + 三条单调性 + 清档 | `test/storage.test.mjs`(13)：无 `window` 退化内存、`best` 只降、`unlocked` 只升、`perfect` 粘滞且用提示即不给、corrupt payload 修复、DOM 侧落盘、清档连 key 一起删 |
 | `js/core/rng.js` | `hashSeed`（FNV-1a **派生**的两轮混合，**不是**教科书 FNV-1a）+ `mulberry32` + `rngFrom` + `todayKey` | **无独立测试文件**。间接证据：`test/library.test.mjs:109`（同一日期两次 `dailyLot` 同 id，且 id 下标 = `hashSeed % 24`）、`test/make.test.mjs:36`（不同种子不许相等）、`test/make.test.mjs:27`（同种子逐字段相同）。契约要求的"`hashSeed('a') = 723832900` / `>>>0` 落在 32 位内"两条**没有写成语句级断言**（§6-4）；本次实测：`node -e 'import("./js/core/rng.js").then(m=>console.log(m.hashSeed("a")))'` → `723832900` |
-| `js/data/lots.js` | 构建期产物：`TIERS_META`（第 7 行）+ 24 行关卡 | `test/library.test.mjs` 对磁盘上的行独立复算 + `node tools/bake.mjs` 的复验（`tools/bake.mjs:123-129` 三条 throw：par 不可复现 / routes 不可复现 / `truncated` 为真）。本次重跑产物与仓内版本 diff 为空 |
+| `js/data/lots.js` | 构建期产物：`TIERS_META`（第 7 行）+ 24 行关卡 | `test/library.test.mjs` 对磁盘上的行独立复算 + `node tools/bake.mjs` 的复验（`tools/bake.mjs:129-134` 三条 throw：par 不可复现 / routes 不可复现 / `truncated` 为真）。本次重跑产物与仓内版本 diff 为空 |
 
 ### 服务器与桌面壳
 
@@ -120,7 +120,7 @@ node 95 条 / 浏览器 116 条、fail 0（2026-10-02 重跑口径），输出�
 | 每条 par 都是奇数（难度带为什么长成 1-3/5-7/9-11/13-15） | `node -e` 打印 `library.js` 的 `ALL.map(l=>l.par)` | `1,1,3,3,3,3,5,5,5,5,7,7,9,9,9,9,11,11,13,13,15,15,15,15`；断言在 `test/make.test.mjs:57` |
 | 全仓没有 `if (n >= 4) return false` 这类特判 | `grep -rn "n >= 4\|n > 3" js/core/`（配合 §5.2 里两条 truncated / 6+6 断言） | 无命中；不可解只由 `solve()` 的前沿耗尽给出 |
 | `hashSeed` 不是教科书 FNV-1a | `node -e 'import("./js/core/rng.js").then(m=>console.log(m.hashSeed("a")))'` | `723832900`（教科书 FNV-1a 是 `3826002220`） |
-| `verify.sh` 内部自洽 | 对读脚本要求与页面/钩子 | 它 grep 的 `id="lot"` 在 `index.html:25`；它轮询的 `window.ferry.state.id` 在 `js/main.js:474`+`:487`；五段场景名在 `tools/playtest.mjs:686`（`SCENARIOS`）与 `:173`+`:683`（`@pointer` = 三条腿）里都存在；`CDP_PORT=9348`/`WEB_PORT=5188` 由脚本 `export` 给 `playtest.mjs`，覆盖后者的 9340/5180 默认值 |
+| `verify.sh` 内部自洽 | 对读脚本要求与页面/钩子 | 它 grep 的 `id="lot"` 在 `index.html:25`；它轮询的 `window.ferry.state.id` 在 `js/main.js:474`+`:485`；五段场景名在 `tools/playtest.mjs:686`（`SCENARIOS`）与 `:173`+`:683`（`@pointer` = 三条腿）里都存在；`CDP_PORT=9348`/`WEB_PORT=5188` 由脚本 `export` 给 `playtest.mjs`，覆盖后者的 9340/5180 默认值 |
 
 ---
 
@@ -159,7 +159,7 @@ node 95 条 / 浏览器 116 条、fail 0（2026-10-02 重跑口径），输出�
 ### 3.2 产物复证：`node tools/bake.mjs` 的复验条款 + `node --test test/library.test.mjs`
 
 bake 只让"重新解一遍能复现印着的数字"的关卡入库，三条不满足直接 throw：
-`tools/bake.mjs:123`（par 不符）、`:127`（routes 不符）、`:129`（搜索被截断，即结论不是证明）。
+`tools/bake.mjs:129`（par 不符）、`:132`（routes 不符）、`:134`（搜索被截断，即结论不是证明）。
 本次实跑（`/tmp` 副本，stdout 原样）：
 
 ```
@@ -190,7 +190,7 @@ labyrinth  收 6 题  seeds 40 → levels 40 (100%) · unique 29 (73%) · 变异
 | 弃因计数 | 无提升 50838 · 判不可解 18470 · 超带 1252 · 人数不合 52 · 低于带 70 · 同数平移 217（四档相加，原值见每档行） |
 | 耗时 | 单题最慢 1126 ms；四档分别 0.0 / 0.2 / 2.1 / 9.3 s（合计约 11.6 s）。**同一条命令本会话又跑了两次**：结构性数字逐位相同、产物 md5 三次都是 `caaf916…`，而单题最慢在 1110 / 1126 / 2414 ms 之间漂 ⇒ 耗时随机器负载走，带与接受率不走（`DESIGN.md` §3 末段） |
 | 最大搜索状态数 | 212 态（`labyrinth-02`，8 角色 ⇒ 512 个态里可到 212 个） |
-| 复现命令 | `node tools/bake.mjs`（可选 `PER_TIER=8`、`COLLECT=60` 两个环境变量，`tools/bake.mjs:28-29`） |
+| 复现命令 | `node tools/bake.mjs`（可选 `PER_TIER=8`、`COLLECT=60` 两个环境变量，`tools/bake.mjs:32-33`） |
 
 ### 3.3 生成器与前端代价：`node test/balance.mjs`（本次实跑）
 
@@ -264,12 +264,12 @@ node -e 'import("./js/core/library.js").then((L)=>{const s=L.stats();for(const t
 | 6 | **[本仓真踩过的]** 生成器要求"每次变异必须让 par 严格变大"，于是一个档收敛到两三种标准形状 | 加入**有配额的同数平移**（`tier.lateral` + 0.5 概率）：形状可以变、发布出去的 par 仍然是最后量到的那个数，且必须落在带内。本次实测唯一题面：shoal 9/40、ford 20/40、rapids 16/40、labyrinth 29/40（§3.2） | `js/core/make.js:315-324`（lateral 分支与两个测量值）、`tools/bake.mjs:35-44`（`faceOf` 多样性挑选，注释同样引用这次测量）；跑：`node tools/bake.mjs` 看 `unique` 那一栏 |
 | 7 | **[本次核查新发现，未修]** `js/core/make.js:9-16`、`:238` 与 `tools/bake.mjs:4-9` 的注释印着 "4000 样本 17 个（0.4%）"、"约 46% 随机题面可解"、"60 颗种子 14 个不同题面" | 本次在同一份代码上实测是 **1.14%（40/3521）**、**62.3% 可解**、**36 个不同 signature/60 颗种子**（§3.3、§3.4）。差异来源：那些数字是**加入 lateral 之前**的严格递增版生成器量的。定性结论没变且更强，但注释数字已过期。**本次已改**：`js/core/make.js:8-19` 现在印的是 2 016 探针 / 1.0% / 35.1% 不可解与 `唯一题面` 8/60·36/60；`tools/bake.mjs:3-14` 印的是中位 210 ms / 最慢 2 629 ms（balance）与 339/41 452 = 0.8%、单题最慢 1110-2414 ms（三次实跑的漂移区间），并注明"引用毫秒前先重跑"。重跑命令：`node test/balance.mjs`、`node tools/bake.mjs`、§3.4 那条 | 复现命令与输出就在 §3.4；文档侧的处理写在 `DESIGN.md` §3.3 末段与 §10 第三条 |
 | 8 | **[风险类]** 难度带写成 `1-4 / 5-8 / 9-12 / 13-16` 这种"看着等宽"的区间 | 船从左岸出发、终点要求船停在右岸 ⇒ **每个 par 都是奇数**，偶数那半边格子永远空着。带只能是 `1-3 / 5-7 / 9-11 / 13-15`，并且 `par % 2 === 1` 本身是断言 | `test/make.test.mjs:57`；`js/core/make.js:427-429` 的注释说明"每个 par 都是奇数"这件事是量出来的；§3.2 的直方图只有 `1,3,5,7,9,11,13,15` 八格 |
-| 9 | **[家族教训]** 把"生成包络"与"已发布关卡实际落成的 min/max"当同一个数（Gridlock 抄错过的那一格） | `js/core/make.js:430` 的 `TIERS` 是生成时允许什么；`js/data/lots.js:7` 的 `TIERS_META` 是入库行量出来的 min/max/两种船各几关，由 `tools/bake.mjs:191` 现算，UI 印后者 | `test/library.test.mjs` "every band shows both boat laws where the data claims it does"（要求 `parMin === t.min`、`n === t.free + t.ferry`）+ "the four bands do not overlap…" |
+| 9 | **[家族教训]** 把"生成包络"与"已发布关卡实际落成的 min/max"当同一个数（Gridlock 抄错过的那一格） | `js/core/make.js:431` 的 `TIERS` 是生成时允许什么；`js/data/lots.js:7` 的 `TIERS_META` 是入库行量出来的 min/max/两种船各几关，由 `tools/bake.mjs:196` 现算，UI 印后者 | `test/library.test.mjs` "every band shows both boat laws where the data claims it does"（要求 `parMin === t.min`、`n === t.free + t.ferry`）+ "the four bands do not overlap…" |
 | 10 | **[风险类]** 让 shell 或 view 自己再判一次"这步能不能开船" | 两条船口径的差异必须只有一个出处，否则改一处漏一处，画面会**安静地说谎**。`js/view.js` 只把三种手势翻成一次 `onBoard/onUnboard/onDepart` 请求；拒因文案由 `js/main.js:112` 的 `faultText()` 直接消费 core 返回的 `why`/`conflict` | `test/game.test.mjs:99`（拒步报出**是哪两个角色**）、`:88`（超载抖动不计数）、`:25`（装卸一律不计费）；`js/core/river.js:256`（`cross` 是唯一判定点） |
 | 11 | **[本仓真踩过的]** `'free'` 口径下"没有艄公"如果靠"查不到艄公索引"来表达，任何一岸都会因巧合被判无人监管 | 这条差异必须写死：`supervised()` 在非 `'ferry'` 口径下**显式 `return false`**，注释就地说明这条线就是两条口径的分岔 | `js/core/river.js:120-127`；`test/river.test.mjs:35` "under the free law no bank is ever supervised, even the one a 'ferry' cast would call home"、`:107`（moment 3：同一个落地在 `'free'` 下死） |
 | 12 | **[风险类]** 终点只判"左岸空了" | `'free'` 口径下左岸空了并不蕴含船也过去了。`solvedState` 是 `mask === 0 && bank === RIGHT`，两个条件都写出来 | `js/core/river.js:283-286`；`test/river.test.mjs:270` "solvedState wants everyone off the left bank *and* the boat with them" |
 | 13 | **[风险类]** 冲突判定的**时刻**搞混（判船离开前的旧状态 / 判到达岸却免判了离开岸 / 载法与岸上冲突混报） | 实现是：先 `loadingFault`（`'far'/'over'/'ferry'/'empty'`），再对**新状态**的两岸判，跳过被监管的那岸。四个时刻各有正反例 | `test/river.test.mjs:80,89,96,107,121,133`（moment 1-4 与两条补充）；`test/anchors.test.mjs:205`（教学性拒步，`where = 'departure'`、`conflict.roles = [2, 3]`） |
-| 14 | **[家族教训]** 台架导航之后 `sleep()` 等待、或多个仓共用一个 DevTools 端口 | `tools/playtest.mjs:99` `waitShell()` 轮询 shell；`tools/verify.sh` 先轮 `/json/version` **再轮 web 根目录的内容**（`grep 'id="lot"'`，别人家的 index.html 不算就绪），`:91-96` 再轮 boot 关卡 id；`:32-35` 端口被占直接 `exit 6`；`:43-53` 的 `trap cleanup EXIT` 对 Chrome/服务器/看门狗都 `wait` 并 `pgrep` 查残留；结果 JSON 用**花括号计数**截（`:101-128`） | 静态核查见 §2 末行；**运行性本次未验证**（§6-1） |
+| 14 | **[家族教训]** 台架导航之后 `sleep()` 等待、或多个仓共用一个 DevTools 端口 | `tools/playtest.mjs:127` `waitShell()` 轮询 shell；`tools/verify.sh` 先轮 `/json/version` **再轮 web 根目录的内容**（`grep 'id="lot"'`，别人家的 index.html 不算就绪），`:115-120` 再轮 boot 关卡 id；`:36-39` 端口被占直接 `exit 6`；`:47-57` 的 `trap cleanup EXIT` 对 Chrome/服务器/看门狗都 `wait` 并 `pgrep` 查残留；结果 JSON 用**花括号计数**截（`:125-152`） | 静态核查见 §2 末行；**运行性本次未验证**（§6-1） |
 | 15 | **[风险类]** 搜索被预算截停时仍然交出一个"不可解"结论 | `solve()` 返回 `truncated` 标记，任何"不可解"声称都以 `truncated === false` 为前提；bake 遇到 truncated 直接 throw（`:129`），`test/library.test.mjs` 对 24 行逐行要求它 | `js/core/solve.js:49-50,73-75`；`test/anchors.test.mjs:127`；`node --test test/library.test.mjs` |
 | 16 | **[本仓真踩过的，本次修]** `js/view.js` 的 `layout()` 把座位宽度定义成"水宽 / 容量"（`slot = max(pitch*0.8, floor((waterW-30)/capacity))`），于是**船体永远等于河宽**：1280×820 窗口下画布 886×610、水带 570、船体 562 ⇒ 两个码头的中心距只有 **2 px** | 这直接制造了 `@pointer` 的第二条失败。规格 §4 的两种开船手势是"点船"**或"拖船到对岸"**，而 `far` 的判据是 `|dx| > 0.45 × 两码头间距` = **0.9 px** ⇒ 任何 1 px 的拖动都算"拖到对岸"；台架要的"拖到 20% 距离"在这种几何下是 `round(2×0.2)` = 0..1 px，于是**半途而废的拉船被结算成靠岸**，`shoal-01` 的 par 恰好是 1 ⇒ 一步就 `done/curtain/busy` 全 true。核心规则从来没错（`depart()` 只在合法载货时计 1 步），错的是几何让"到没到对岸"不可表达。现在座位跟着**角色尺寸**走、船体另外封顶在水宽 60% ⇒ 同窗口下船体 214、行程 350 px；点击判定同时加 `TAP_SLOP = 6`（半途而废与"手指抖一抖的点"必须分得开，两者都不是 0） | `js/view.js:124-131`（seat/boatW 与两个上限）、`:26`（`TAP_SLOP`）、`:611-623`（`far`/`clicked`）；台架 `tools/playtest.mjs:495` 新增前提断言"两码头间距 ≥ 60 px 且 20% 行程既大于点击抖动又小于 `0.45×`"，`:500` 原断言一字未改。跑：`bash tools/verify.sh` 的 `@pointer rows: 64 fail: []`（§7.4 的 2026-10-02 重跑）；因果全文在 `DESIGN.md` §7.1 |
 | 17 | **[本仓真踩过的，本次修]** `layout()` 里右岸的角色网格以**水带**为中心（`bankBox[1] = { x: waterX0, w: waterW }`），于是过了河的人站在航道正中、船体底下（画布 x 443 = 画布中心），彼岸沙地空着 | 这制造了第一条失败。台架取"空白水面"用的是 `(画布中心 x, 12% 高度)` —— 那个点离艄公的圆只有 **8 px**，落在 `max(11, pitch*0.5)` = 23 px 命中半径里 ⇒ `down()` 认成"按在角色上"、`up()` 的 `!wasAboard && !moved` 分支**合法地**把他装上了船：`trips` 没动而 `boat.length` 从 0 变 1，断言判 FAIL 却打印 `{"wBefore":1,"wAfter":1}`（detail 只印了 `trips`，这就是"两边相等却 FAIL"的来历）。**断言的结论是对的**（规格 §4：按空白处不该有任何事），要修的是"那个坐标到底是不是空白"。现在右岸列以右岸沙地为中心（画布 x 799），并且台架在按下之前先用页面自己公布的 `reach()` 自证前提 | `js/view.js:135-142`（`bankBox` 与 `bankRect` 同一条线）、`:528-533`（`hitReach()` 单一出处）、`:737`（`reach()`）；`js/main.js:546-552`（钩子暴露 `reach()`）；`tools/playtest.mjs:463` 前提断言 + `:468` 原断言（detail 现在打印 `trips/boat/bank` 三个前后值）。跑：同上 |
@@ -317,7 +317,7 @@ node -e 'import("./js/core/library.js").then((L)=>{const s=L.stats();for(const t
 8. **玩家可以把可解的关卡走进无解局面**，UI 没有补偿（无自动撤销、无"这题已死"的提示，只有
    `hint()` 返回 `null` 与 `depart()` 的 `already` 拒绝）。这是接受的设计边界而不是 bug，
    但对玩家不友好，写在 `README.md` 已知边界与 `DESIGN.md` §10 末条。
-9. **`tools/balance.mjs` 不是门禁**：它只打印，不返回 `rows/fail`，也不参与 CI 的任何一步。
+9. **`test/balance.mjs` 不是门禁**：它只打印，不返回 `rows/fail`，也不参与 CI 的任何一步。
    文档里引用的生成实测数字（§3.3）因此**没有**被自动比较 —— `test/make.test.mjs:115` 那条
    `rate < 0.5` 是唯一沾边的自动上界，而且它故意放得松。
 

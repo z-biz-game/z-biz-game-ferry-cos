@@ -30,7 +30,9 @@
 node server.cjs            # http://127.0.0.1:5180/
 npm run check              # node --check 全量（CI 的 Syntax 步骤就是这一条）
 npm run unit               # 六个 node 套件（95 条断言）
-bash tools/verify.sh       # node 套件 + headless Chrome 真实拖拽验收（五段，门线 ≥38 条）
+bash tools/verify.sh       # node 套件 + 文档数字闸 + headless Chrome 真实拖拽验收（五段，门线 ≥38 条）
+node tools/doctest.mjs       # 第六道闸：文档里每个现值 == 代码现值（363 项，含反空转的行数断言）
+node tools/sabotage.mjs      # 破坏试验台账：7 把刀只改临时副本，逐把要求文档闸点名变红
 node test/balance.mjs      # 生成器实测：出题率 / 变异接受率 / 被替换掉的 scatter 对照
 node tools/bake.mjs        # 重新出题并复验，写 js/data/lots.js（本机 4 档合计约 11.6 s）
 npx electron .             # 桌面壳（需先自行 npm i -D electron，本仓不装）
@@ -122,13 +124,13 @@ node -e 'import("./js/core/library.js").then((L)=>{const s=L.stats();for(const t
 2. **迷津档一关自由船都没有**。撒点与变异两条路都量过：8 角色的自由船题要么不可解、要么落不进 13–15 这个带。
    这一格不是配平失败，是这条河真的长这样——所以它印在表里而不是藏起来。
 
-难度带**不是**由 `js/core/make.js:430` 的 `TIERS` 说的：那份 `min/max` 只是生成包络，
-屏幕上与文档里印的是 `js/data/lots.js` 第 7 行的 `TIERS_META`，由 `tools/bake.mjs:191`
+难度带**不是**由 `js/core/make.js:431` 的 `TIERS` 说的：那份 `min/max` 只是生成包络，
+屏幕上与文档里印的是 `js/data/lots.js` 第 7 行的 `TIERS_META`，由 `tools/bake.mjs:196`
 从**实际入库的行**里量出来。`test/library.test.mjs` 再比对一次两者并断言四档互不重叠。
 
 ## 为什么生成不在浏览器里跑
 
-因为这里的生成 = 搜索，而搜索不便宜。`node test/bake.mjs`（本次实跑）给的是：
+因为这里的生成 = 搜索，而搜索不便宜。`node tools/bake.mjs`（本次实跑）给的是：
 
 ```
 shoal      seeds 40 → levels 40 (100%) · unique 9 (23%)  · 变异接受 10/10     (100.0%) · 0.0s
@@ -144,7 +146,7 @@ labyrinth  seeds 40 → levels 40 (100%) · unique 29 (73%) · 变异接受 339/
 跑一次有上限的现场搜索（`js/core/game.js:152` 的 `hint()`，`limit = 40000`，状态空间 ≤ 8192）。
 烤进产物的除了关卡还有 `par` / `routes` / `states`，玩家永远不需要等一次搜索才知道"最少几步"。
 
-被替换掉的那个"随机撒点再筛"生成器还留在 `js/core/make.js:375` 的 `scatter()` 里，
+被替换掉的那个"随机撒点再筛"生成器还留在 `js/core/make.js:376` 的 `scatter()` 里，
 因为它给出的正是上面那句结论的数字（本次实跑，40 次调用、3521 个随机题面）：
 
 ```
@@ -176,6 +178,29 @@ scatter labyrinth: probed 3521 · 落进 13-15 带 40 (1.14%) · 不可解 1265 
   按下之前先证明那个坐标真的既不在船体矩形内、也不在任何角色的命中半径内，
   以及两个码头之间的行程真的长到"拖到对岸"是一个手势（`DESIGN.md` §7.1 记的就是这条来历）。
 
+## 破坏试验台账（7 把刀）
+
+`node tools/sabotage.mjs` 把每一类谎各写回**一份临时副本**里一遍（仓里的真文件一个字都不动，跑完删副本），
+再在副本里跑 `node tools/doctest.mjs`。一把刀算数，必须同时满足：rc != 0 **且**输出点名它那一条 FAIL 行——
+语法炸了也是 rc != 0，但那不是闸红。任何一把没红或没点名，整体判红并点名是哪把。最右列由这个脚本从子进程
+读回来**自己回写**（手抄的数下一次整跑会被它判成不符）；回写之后再跑一次"不带刀对照整跑"，rc=0 才算刀拔干净了。
+台账的每一格（文件、针、改成、期望红行）都由 `tools/doctest.mjs` 的 D11 与脚本里的 `KNIVES` 逐字对上，
+改表格不改脚本、或改脚本不改表格，都会立刻红。
+
+| 刀 | 这一类谎 | 文件 | 针（唯一命中） | 改成 | 期望点名的红行 | rc |
+|---|---|---|---|---|---|---|
+| S1 | 文档抄的实测读数漂一格 | `README.md` | `\| 迷津 labyrinth \| 6 \| 13–15 \| 15 \| 160 / 160 / 212 \|` | `\| 迷津 labyrinth \| 6 \| 13–15 \| 15 \| 161 / 160 / 212 \|` | `D1 labyrinth 可通行局面 min/med/max == 实测现值` | 1 |
+| S2 | 代码改了常数、文档还引用旧值 | `js/core/river.js` | `export const MAX_ROLES = 12;` | `export const MAX_ROLES = 11;` | `D5a 文档写的 MAX_ROLES 处处等于 river.js 现值` | 1 |
+| S3 | 文档的行号引用指回旧位置 | `README.md` | `` `js/core/make.js:431` 的 `TIERS` `` | `` `js/core/make.js:430` 的 `TIERS` `` | `D6 文档引用的「make.js 的 TIERS」` | 1 |
+| S4 | 表格改了形状，正则一条都不命中 | `README.md` | `\| 浅滩 shoal \| 6 \| 1–3 \| 3 \|` | `\| 浅滩 shoal \| 6 \| 1-3 \| 3 \|` | `D1a README 的难度带表解析到 4 行` | 1 |
+| S5 | 锚点表某个态数被改一个位 | `README.md` | `**11** \| 8100 \| 64 / 128 \|` | `**11** \| 8100 \| 65 / 128 \|` | `D2 第 5 行的可通行局面 == 重算的 explored` | 1 |
+| S6 | 门线被调低（浏览器腿可以少一半） | `tools/verify.sh` | `MIN_BROWSER_ROWS=${MIN_BROWSER_ROWS:-38}` | `MIN_BROWSER_ROWS=${MIN_BROWSER_ROWS:-19}` | `D4a README 的门线等于 verify.sh 的 MIN_BROWSER_ROWS` | 1 |
+| S7 | 现场搜索的预算被改小、文档还写着 40000 | `js/core/game.js` | `limit: 40000 }` | `limit: 4000 }` | `D5e 文档写的 hint 预算处处等于 game.js 现值` | 1 |
+
+台账之外的那些数（烘焙与 balance 的毫秒、scatter 的 3521 个样本、浏览器 116 条与各腿分布）
+在 `tools/doctest.mjs` 的 D10 里被登记成 **unpinned 清单**：它们没有代码出处，钉不住，但每条都配一句
+"这段文字还必须在文档里"的反删除断言——钉不住不等于可以删掉让它变绿。
+
 ## 文件地图
 
 ```
@@ -197,6 +222,8 @@ tools/bake.mjs        出题 → 序列化后复验 → 写 js/data/lots.js，�
 tools/playtest.mjs    零依赖 CDP 驱动：注入、真实鼠标拖拽、截图、抓 console
 tools/verify.sh       一次性验收门（独立 profile、双端点就绪轮询、花括号计数截 JSON、SKIP_UNIT）
 tools/harness.mjs     微型测试框架，node 与浏览器套件输出形状一致
+tools/doctest.mjs     第六道闸：README / DESIGN / deliverable 里每个现值 == 代码现值，每条解析配反空转行数断言
+tools/sabotage.mjs    破坏试验台账：刀只改临时副本，逐把要求上那道闸点名变红，实测 rc 由脚本读回来
 test/                 六个套件 + 手算 fixture（fixture.mjs）+ 难度台架 balance.mjs
 ```
 
