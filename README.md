@@ -46,6 +46,10 @@ npx electron .             # 桌面壳（需先自行 npm i -D electron，本仓
 - **三个手势，一对一映射到模型**（`js/view.js`）：
   把角色拖到船上 = 装船（**不计单程**）、拖回岸上 = 卸船（不计单程）、点船身或把船拉到对岸 = **一次单程**（唯一计数的地方）。
   装船时被拒的角色会抖一下并在面板上说明原因，计数不动。
+- **"拉到对岸"必须真的到对岸**：半途而废的拖船（位移超过点击抖动、但没到对岸那一侧的判定线）
+  船回原位、一个人也不上岸、不计数；判定线是"两码头间距的 45%"，所以船体不许铺满河面
+  （`js/view.js:124-131` 的上限就是这条规则的几何表达，来历见 `DESIGN.md` §7.1）。
+  按在空白河面上则什么都不发生——`@pointer` 里有一条断言先证明按的那个点确实什么都碰不到。
 - **两条船的口径**（`js/core/library.js` 的 `LAWS`，也是面板上"船的法"那一格）：
   - **艄公船** `boat.rule = 'ferry'`：艄公**必须**在船上，另可载 `0..capacity-1` 名乘客，
     船上总人数 ≤ `capacity`。**艄公独自过河合法**——狼羊菜的第 2、4、6 步就是这么走的；
@@ -161,10 +165,16 @@ scatter labyrinth: probed 3521 · 落进 13-15 带 40 (1.14%) · 不可解 1265 
 - **浏览器层五段**：`tools/playtest.mjs` 起真实 headless Chrome，`@boot @play @routes @save @pointer`
   各段独立返回 `{rows, fail}`，`tools/verify.sh:18` 的门线是五段合计 `MIN_BROWSER_ROWS=38` 条。
   `@pointer` 跑在 Node 侧：坐标取自页面里的 `window.ferry.rolePoint(i)` / `boatPoint()`，
-  事件是真的 `Input.dispatchMouseEvent` 拖拽与按压——把 `shoal-03`（艄公船，par 3）从装船拖到过河走完，
+  事件是真的 `Input.dispatchMouseEvent` / `Input.dispatchTouchEvent` / `Input.dispatchKeyEvent`——
+  mouse 与 touch 两条腿各自把 `shoal-03`（艄公船，par 3）从装船拖到过河走完，
   并断言 `shoal-04`（容量 3）里第四个角色拖不上船、对岸的角色拖不进船、`shoal-02`（自由船）的空船按压
   不计单程，而 `shoal-01`（艄公船）里"把船拖到对岸"恰好计一单程。
-  本文件**没有**印浏览器层的实际条数：那一段由 lead 在统一的 headless Chrome 窗口里跑，不在本次会话内。
+  **本次实跑（`bash tools/verify.sh`，不跳 unit，2026-10-02 重跑）：五段合计 116 条、fail 0**
+  （`@boot` 11 / `@play` 11 / `@routes` 17 / `@save` 13 / `@pointer` 64），console `(none)`，
+  末行 `=== ALL GREEN ===`、rc=0。`@pointer` 是三条真输入腿的合计数（mouse 35 / touch 18 / keys 11），
+  其中 mouse 那 35 条里有 2 条是**前提断言**：
+  按下之前先证明那个坐标真的既不在船体矩形内、也不在任何角色的命中半径内，
+  以及两个码头之间的行程真的长到"拖到对岸"是一个手势（`DESIGN.md` §7.1 记的就是这条来历）。
 
 ## 文件地图
 

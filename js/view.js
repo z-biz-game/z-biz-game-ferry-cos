@@ -179,13 +179,23 @@ export function createView(canvas, hooks = {}) {
     return { x: bb.x, y: bb.y, w: bb.w, h: bb.h };
   }
 
+  // The cosmetic glide is over the instant `busy()` says so; the animation loop only comes along
+  // on the next frame to drop the object. Reading the raw `glide` where a *position* is asked for
+  // would keep publishing "this role is still riding the hull" for up to a frame after the counter
+  // reported the landing, and a caller that waited on `busy` (the harness does exactly that) would
+  // then press a point the next frame no longer owns. Positions use the live view of it.
+  function glideNow() {
+    return glide && performance.now() < glide.until ? glide : null;
+  }
+
   function roleAt(id) {
     const g = geo;
     const seatR = (bb) => Math.max(8, Math.min(g.pitch * 0.42, ((bb.w - 22) / Math.max(1, g.comp.capacity)) * 0.46));
-    if (glide && glide.cargo.indexOf(id) >= 0) {
+    const gl = glideNow();
+    if (gl && gl.cargo.indexOf(id) >= 0) {
       // Still riding: pinned to the boat until the cosmetic glide ends.
       const bb = boatBox();
-      const k = glide.cargo.indexOf(id);
+      const k = gl.cargo.indexOf(id);
       const slot = (bb.w - 22) / Math.max(1, g.comp.capacity);
       return {
         x: Math.round(bb.x + 11 + slot * (k + 0.5)),
@@ -699,7 +709,7 @@ export function createView(canvas, hooks = {}) {
         ...p,
         r: Math.round(pos.r || Math.max(10, geo.pitch * 0.42)),
         aboard: game.boat.indexOf(id) >= 0,
-        riding: !!(glide && glide.cargo.indexOf(id) >= 0),
+        riding: pos.riding === true, // roleAt() already resolved the glide against the clock
         bank: pos.bank === undefined ? game.bank : pos.bank,
       };
     },

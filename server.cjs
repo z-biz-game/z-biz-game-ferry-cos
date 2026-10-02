@@ -16,6 +16,12 @@ const TYPES = {
   '.ico': 'image/x-icon',
 };
 
+// GitHub Pages serves this site under /<repo>/, and a relative <script src="js/main.js"> means a
+// different file there than it does at the root of a localhost server. MOUNT makes one server
+// answer both shapes, so the browser gate tests the URL form it will actually be deployed at
+// instead of the one that happens to be convenient locally.
+const MOUNT = String(process.env.MOUNT || '').replace(/^\/+|\/+$/g, '');
+
 function createServer(root = __dirname) {
   return http.createServer((req, res) => {
     let urlPath;
@@ -24,6 +30,13 @@ function createServer(root = __dirname) {
     } catch {
       res.writeHead(400).end('bad request');
       return;
+    }
+    if (MOUNT && urlPath === '/' + MOUNT) {
+      res.writeHead(301, { Location: '/' + MOUNT + '/' + (req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : '') }).end();
+      return;
+    }
+    if (MOUNT && (urlPath === '/' + MOUNT + '/' || urlPath.startsWith('/' + MOUNT + '/'))) {
+      urlPath = urlPath.slice(MOUNT.length + 1);
     }
     if (urlPath === '/') urlPath = '/index.html';
     const file = path.join(root, path.normalize(urlPath).replace(/^(\.\.[/\\])+/, ''));
@@ -59,7 +72,7 @@ if (require.main === module) {
   const port = Number(process.argv[2]) || Number(process.env.PORT) || 5180;
   startServer({ port })
     .then((server) => {
-      console.log(`迷津渡 FERRY served at http://127.0.0.1:${port}/  (ctrl+c to stop)`);
+      console.log(`迷津渡 FERRY served at http://127.0.0.1:${port}/${MOUNT ? ' (mount /' + MOUNT + '/)' : ''}  (ctrl+c to stop)`);
       process.on('SIGINT', () => server.close(() => process.exit(0)));
     })
     .catch((err) => {
