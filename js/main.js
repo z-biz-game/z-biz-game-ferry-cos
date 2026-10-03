@@ -473,6 +473,10 @@ apply();
 // replays it through boardRole/departNow rather than around them.
 window.ferry = {
   version: 1,
+  // 简报 §3：把 view 挂到台面上，否则减弱动效/暂停这类判据任何探针都读不到内部状态。
+  view,
+  setReduceMotion: (on) => view.setReduceMotion(on),
+  isReducedMotion: () => view.isReducedMotion(),
   get state() {
     const g = app.game;
     const lot = app.lot;
@@ -658,4 +662,23 @@ if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', bootFullscreen);
 } else {
   bootFullscreen();
+}
+
+// ---- 减弱动效（prefers-reduced-motion）----
+//
+// 跟住系统设置，而且**运行中改设置要立刻生效**：只读一次 matchMedia 是不够的，
+// 玩家在系统里把开关拨回来，页面还停在上一次读到的答案上。
+// addEventListener 是标准接口，老 Safari 只有 addListener —— 特性探测，不做 UA 判断。
+const motionQuery = typeof matchMedia === 'function'
+  ? matchMedia('(prefers-reduced-motion: reduce)') : null;
+function applyReduceMotion(on) {
+  view.setReduceMotion(on);
+}
+if (motionQuery) {
+  applyReduceMotion(motionQuery.matches);
+  if (typeof motionQuery.addEventListener === 'function') {
+    motionQuery.addEventListener('change', (e) => applyReduceMotion(e.matches));
+  } else if (typeof motionQuery.addListener === 'function') {
+    motionQuery.addListener((e) => applyReduceMotion(e.matches));
+  }
 }

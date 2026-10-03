@@ -92,6 +92,11 @@ export function createView(canvas, hooks = {}) {
   let glide = null; // { from, to, cargo, until }
   let shake = null; // { ids, boat, until }
   let flare = null; // { roles, bank, until, why }
+  // 减弱动效闸门。shake 的位移是 x += Math.sin(now / 22) * 4 * (...)：一段纯装饰的来回摆动。
+  // 减弱动效下**只去掉位移，不去掉 shake 本身**——shake 身上还挂着 ids，
+  // 它是"刚才被拒的是哪几个子"这条信息唯一的载体，连它一起删掉，玩家就收不到任何反馈了。
+  // 于是：形状/高亮照旧，位移恒为 0；信息留住，晃动没有。
+  let reduceMotion = false;
   let mark = null; // { cargo, until } — the hint's "load these"
   let raf = 0;
 
@@ -302,7 +307,7 @@ export function createView(canvas, hooks = {}) {
     const g = geo;
     const deck = bb.y + g.boatH * 0.52;
     ctx.save();
-    if (shake && shake.boat && now < shake.until) {
+    if (shake && shake.boat && now < shake.until && !reduceMotion) {
       const k = (shake.until - now) / SHAKE_MS;
       ctx.translate(Math.sin(now / 24) * 5 * k, 0);
     }
@@ -359,7 +364,7 @@ export function createView(canvas, hooks = {}) {
     let y = pos.y;
     let alpha = 1;
     if (carry && carry.id === id) return; // drawn last, under the finger
-    if (shake && shake.ids.indexOf(id) >= 0 && now < shake.until) {
+    if (shake && shake.ids.indexOf(id) >= 0 && now < shake.until && !reduceMotion) {
       x += Math.sin(now / 22) * 4 * ((shake.until - now) / SHAKE_MS);
     }
     if (pos.bank !== undefined && pos.bank !== game.bank) alpha = 0.45; // out of reach, same rule
@@ -663,6 +668,8 @@ export function createView(canvas, hooks = {}) {
     },
     measure,
     redraw: draw,
+    setReduceMotion(v) { reduceMotion = !!v; if (reduceMotion) draw(); return reduceMotion; },
+    isReducedMotion: () => reduceMotion,
     busy,
 
     // A successful crossing: remember where it came from so the hull can travel and the crew can
