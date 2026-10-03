@@ -31,8 +31,8 @@ node server.cjs            # http://127.0.0.1:5180/
 npm run check              # node --check 全量（CI 的 Syntax 步骤就是这一条）
 npm run unit               # 六个 node 套件（95 条断言）
 bash tools/verify.sh       # node 套件 + 文档数字闸 + 破坏台账 + headless Chrome 真实拖拽验收（五段，门线 ≥38 条）
-node tools/doctest.mjs       # 第六道闸：文档里每个现值 == 代码现值（364 项，含反空转的行数断言）
-node tools/sabotage.mjs      # 破坏试验台账：7 把刀只改临时副本，逐把要求文档闸点名变红（verify.sh 与 CI 都跑它）
+node tools/doctest.mjs       # 第六道闸：文档里每个现值 == 代码现值（370 项，含反空转的行数断言）
+node tools/sabotage.mjs      # 破坏试验台账：8 把刀只改临时副本，逐把要求文档闸点名变红（verify.sh 与 CI 都跑它）
 node test/balance.mjs      # 生成器实测：出题率 / 变异接受率 / 被替换掉的 scatter 对照
 node tools/bake.mjs        # 重新出题并复验，写 js/data/lots.js（本机 4 档合计约 11.6 s）
 npx electron .             # 桌面壳（需先自行 npm i -D electron，本仓不装）
@@ -178,7 +178,7 @@ scatter labyrinth: probed 3521 · 落进 13-15 带 40 (1.14%) · 不可解 1265 
   按下之前先证明那个坐标真的既不在船体矩形内、也不在任何角色的命中半径内，
   以及两个码头之间的行程真的长到"拖到对岸"是一个手势（`DESIGN.md` §7.1 记的就是这条来历）。
 
-## 破坏试验台账（7 把刀）
+## 破坏试验台账（8 把刀）
 
 `node tools/sabotage.mjs` 把每一类谎各写回**一份临时副本**里一遍（仓里的真文件一个字都不动，跑完删副本），
 再在副本里跑 `node tools/doctest.mjs`。一把刀算数，必须同时满足：rc != 0 **且**输出点名它那一条 FAIL 行——
@@ -193,6 +193,11 @@ scatter labyrinth: probed 3521 · 落进 13-15 带 40 (1.14%) · 不可解 1265 
 （`SKIP_UNIT=1` 的浏览器 job 不重复跑它）和 ci.yml 的 check job 里，而 `D4n` 拿四处同源钉这条接线：
 verify.sh、ci.yml、package.json、README 少任何一处调用，文档闸就红。
 
+最后那句不是修辞——下面这张表的第八把刀 S8 干的就是"把这条调用摘掉"：在临时副本里把 CI 那一行换成
+`run: echo "ledger not wired"`，红的正是 `D4n`，而它打印的四个布尔里只有 `ci=false`、另外三处仍是 `true`
+（逐把证据 `_tmp-ferry-sab-S8.log`）。一把只摘一处的刀能同时报出"其余三处还在"，这条接线才算被钉住，
+而不是被一把大锤整段砸红。
+
 | 刀 | 这一类谎 | 文件 | 针（唯一命中） | 改成 | 期望点名的红行 | rc |
 |---|---|---|---|---|---|---|
 | S1 | 文档抄的实测读数漂一格 | `README.md` | `\| 迷津 labyrinth \| 6 \| 13–15 \| 15 \| 160 / 160 / 212 \|` | `\| 迷津 labyrinth \| 6 \| 13–15 \| 15 \| 161 / 160 / 212 \|` | `D1 labyrinth 可通行局面 min/med/max == 实测现值` | 1 |
@@ -202,6 +207,7 @@ verify.sh、ci.yml、package.json、README 少任何一处调用，文档闸就�
 | S5 | 锚点表某个态数被改一个位 | `README.md` | `**11** \| 8100 \| 64 / 128 \|` | `**11** \| 8100 \| 65 / 128 \|` | `D2 第 5 行的可通行局面 == 重算的 explored` | 1 |
 | S6 | 门线被调低（浏览器腿可以少一半） | `tools/verify.sh` | `MIN_BROWSER_ROWS=${MIN_BROWSER_ROWS:-38}` | `MIN_BROWSER_ROWS=${MIN_BROWSER_ROWS:-19}` | `D4a README 的门线等于 verify.sh 的 MIN_BROWSER_ROWS` | 1 |
 | S7 | 现场搜索的预算被改小、文档还写着 40000 | `js/core/game.js` | `limit: 40000 }` | `limit: 4000 }` | `D5e 文档写的 hint 预算处处等于 game.js 现值` | 1 |
+| S8 | 台账的调用从 CI 里被摘掉：闸还在、没人跑它 | `.github/workflows/ci.yml` | `run: node tools/sabotage.mjs` | `run: echo "ledger not wired"` | `D4n 破坏台账接进了 verify.sh、ci.yml` | 1 |
 
 台账之外的那些数（烘焙与 balance 的毫秒、scatter 的 3521 个样本、浏览器 116 条与各腿分布）
 在 `tools/doctest.mjs` 的 D10 里被登记成 **unpinned 清单**：它们没有代码出处，钉不住，但每条都配一句

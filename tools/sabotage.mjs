@@ -45,6 +45,9 @@ const KNIVES = [
     repl: 'MIN_BROWSER_ROWS=${MIN_BROWSER_ROWS:-19}', expect: 'D4a README 的门线等于 verify.sh 的 MIN_BROWSER_ROWS', cmd: 'node tools/doctest.mjs' },
   { id: 'S7', where: '现场搜索的预算被改小、文档还写着 40000', file: 'js/core/game.js', needle: 'limit: 40000 }',
     repl: 'limit: 4000 }', expect: 'D5e 文档写的 hint 预算处处等于 game.js 现值', cmd: 'node tools/doctest.mjs' },
+  { id: 'S8', where: '台账的调用从 CI 里被摘掉：闸还在、没人跑它', file: '.github/workflows/ci.yml',
+    needle: '        run: node tools/sabotage.mjs', repl: '        run: echo "ledger not wired"',
+    expect: 'D4n 破坏台账接进了 verify.sh、ci.yml', cmd: 'node tools/doctest.mjs' },
 ];
 const only = process.argv.slice(2);
 const picked = only.length ? KNIVES.filter(k => only.includes(k.id)) : KNIVES;
