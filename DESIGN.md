@@ -386,7 +386,7 @@ core 里一旦出现 DOM，`node --test` 那一层直接瘫掉 —— 而那一�
 画布上下文**没有**开 `willReadFrequently`（`js/view.js:82`）。理由：像素回读只发生在**台架侧**
 （`tools/playtest.mjs:457` 采样 alpha 证明"河真的被画出来了"），shipped 代码不读像素，
 给游戏自己的绘制路径开这个标志是拿性能换一条不会踩门的 warning；
-`tools/verify.sh:163` 的 console 门只拦 `[EXCEPTION]`。这一条与九连环/Gridlock 的做法**不同**，
+`tools/verify.sh:173` 的 console 门只拦 `[EXCEPTION]`。这一条与九连环/Gridlock 的做法**不同**，
 是有意选择而不是遗漏；若将来要在页面里读像素，就同时把 `willReadFrequently` 与 console 门一起改。
 
 ### 7.1 两条被几何咬掉的断言（2026-09-27 实修，因果记在这里）
@@ -470,7 +470,7 @@ pitch 46、命中半径 `max(11, pitch*0.5)` = 23）里用 `window.ferry` 的钩
 
 1. `CDP_PORT` 已被占用时**直接 `exit 6`**，而不是换端口继续（`:36-39`）——
    连到别人的 DevTools 或别人的 index.html 会产出自信的错误结论。
-2. `trap cleanup EXIT` 里对 Chrome、静态服务器**和看门狗**都 `kill` + `wait`（`:47-57`、`:168`），
+2. `trap cleanup EXIT` 里对 Chrome、静态服务器**和看门狗**都 `kill` + `wait`（`:47-57`、`:178`），
    并且用 `pgrep -f "user-data-dir=$UDD"` 检查残留；看门狗那一路还显式
    `</dev/null >/dev/null`，否则它继承了 stdout，跑在管道里会把写端一直攥到超时。
 3. 不要加 `--use-gl=angle --use-angle=swiftshader` 之类软件光栅 flag（`:6-8` 的注释）：

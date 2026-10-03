@@ -38,6 +38,13 @@ jobs:
       - name: Doc numbers
         run: node tools/doctest.mjs
 
+      # The ledger above is what makes that green mean something: seven documented lies written back
+      # into throwaway copies, each required to turn the gate red AND name its own assertion, plus a
+      # knife-free control. It starts no browser, so it belongs in this job — and D4n in doctest.mjs
+      # fails if any of verify.sh / this step / package.json / README stops calling it.
+      - name: Sabotage ledger trips the doc gate
+        run: node tools/sabotage.mjs
+
   # The shell is only proven by driving a real page with real mouse events: the canvas hit
   # test, the illegal-loading rule and the save file all live behind `window.ferry`.
   browser:

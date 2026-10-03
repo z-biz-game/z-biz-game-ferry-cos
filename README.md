@@ -30,9 +30,9 @@
 node server.cjs            # http://127.0.0.1:5180/
 npm run check              # node --check 全量（CI 的 Syntax 步骤就是这一条）
 npm run unit               # 六个 node 套件（95 条断言）
-bash tools/verify.sh       # node 套件 + 文档数字闸 + headless Chrome 真实拖拽验收（五段，门线 ≥38 条）
-node tools/doctest.mjs       # 第六道闸：文档里每个现值 == 代码现值（363 项，含反空转的行数断言）
-node tools/sabotage.mjs      # 破坏试验台账：7 把刀只改临时副本，逐把要求文档闸点名变红
+bash tools/verify.sh       # node 套件 + 文档数字闸 + 破坏台账 + headless Chrome 真实拖拽验收（五段，门线 ≥38 条）
+node tools/doctest.mjs       # 第六道闸：文档里每个现值 == 代码现值（364 项，含反空转的行数断言）
+node tools/sabotage.mjs      # 破坏试验台账：7 把刀只改临时副本，逐把要求文档闸点名变红（verify.sh 与 CI 都跑它）
 node test/balance.mjs      # 生成器实测：出题率 / 变异接受率 / 被替换掉的 scatter 对照
 node tools/bake.mjs        # 重新出题并复验，写 js/data/lots.js（本机 4 档合计约 11.6 s）
 npx electron .             # 桌面壳（需先自行 npm i -D electron，本仓不装）
@@ -186,6 +186,12 @@ scatter labyrinth: probed 3521 · 落进 13-15 带 40 (1.14%) · 不可解 1265 
 读回来**自己回写**（手抄的数下一次整跑会被它判成不符）；回写之后再跑一次"不带刀对照整跑"，rc=0 才算刀拔干净了。
 台账的每一格（文件、针、改成、期望红行）都由 `tools/doctest.mjs` 的 D11 与脚本里的 `KNIVES` 逐字对上，
 改表格不改脚本、或改脚本不改表格，都会立刻红。
+
+这台台架在 2026-10-03 之前是**第七道"看起来有、实际没跑"的闸**：文件在仓里、README 在写它，
+`tools/verify.sh` 与 `ci.yml` 却都没有调用它——也就是说下面这张表的 rc 一列一旦被回写，
+之后任何一次让它跑不起来的改动（断言改名、针漂了）都不会有人发现。现在它接在 verify.sh 的逻辑档
+（`SKIP_UNIT=1` 的浏览器 job 不重复跑它）和 ci.yml 的 check job 里，而 `D4n` 拿四处同源钉这条接线：
+verify.sh、ci.yml、package.json、README 少任何一处调用，文档闸就红。
 
 | 刀 | 这一类谎 | 文件 | 针（唯一命中） | 改成 | 期望点名的红行 | rc |
 |---|---|---|---|---|---|---|

@@ -246,6 +246,15 @@ const inReadme = /node tools\/doctest\.mjs/.test(README);
 ok(inVerify && inCi && inPkg && inReadme,
   'D4k 这道闸接进了 verify.sh、ci.yml 的 check job、package.json 与 README 的复跑块（CI 与本地调同一个脚本）',
   `verify=${inVerify} ci=${inCi} pkg=${inPkg} README=${inReadme}`);
+// 台账自己也要"接得进来"：tools/sabotage.mjs 存在但没人调用，和没有这个文件是同一件事——
+// 2026-10-03 之前它在这仓就是第七道"看起来有、实际没跑"的闸，所以这一条拿四处同源钉它。
+const sabVerify = /node tools\/sabotage\.mjs/.test(VERIFY);
+const sabCi = /node tools\/sabotage\.mjs/.test(CI);
+const sabPkg = (PKG.scripts.sabotage || '').trim() === 'node tools/sabotage.mjs';
+const sabReadme = /node tools\/sabotage\.mjs/.test(README);
+ok(sabVerify && sabCi && sabPkg && sabReadme,
+  'D4n 破坏台账接进了 verify.sh、ci.yml 的 check job、package.json 与 README（四处缺一处它就只是一段代码）',
+  `verify=${sabVerify} ci=${sabCi} pkg=${sabPkg} README=${sabReadme}`);
 const minLogic = (VERIFY.match(/^MIN_LOGIC_ROWS=\$\{MIN_LOGIC_ROWS:-(\d+)\}$/m) || [])[1];
 ok(!!minLogic && +minLogic === suiteTotal, `D4l verify.sh 的 logic 档门线等于实跑的 node 断言总数（${suiteTotal}），只增不减`,
   `脚本 ${minLogic} vs 实跑 ${suiteTotal}`);

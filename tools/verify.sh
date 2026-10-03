@@ -107,6 +107,16 @@ if [ -z "${SKIP_UNIT:-}" ]; then
   echo "doc-number assertions counted: ${DOCS_ROWS:-0}"
 fi
 
+# The ledger: seven knives, each one a documented lie written back into a throwaway copy, each one
+# required to turn the gate above red AND name the assertion it bites. A doc gate nobody ever trips
+# is a doc gate nobody can trust — "0 FAIL" also means "the parser found nothing to compare".
+# It belongs in the logic tier because it starts no browser: 7 copies + 1 knife-free control.
+if [ -z "${SKIP_UNIT:-}" ]; then
+  echo "=== sabotage ledger ==="
+  node tools/sabotage.mjs > /tmp/ferry-sabotage.txt 2>&1 || FAILED=1
+  cat /tmp/ferry-sabotage.txt
+fi
+
 export CDP_PORT
 export BASE_URL=$BASE
 node tools/playtest.mjs open "$BASE" | head -3
