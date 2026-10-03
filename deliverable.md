@@ -84,7 +84,7 @@ node 95 条 / 浏览器 116 条、fail 0（2026-10-02 重跑口径），输出�
 | `tools/bake.mjs` | 出题 → **序列化后复验** → 写 `js/data/lots.js`，打印接受率/弃因/直方图 | 本次实跑（在 `/tmp` 副本上），输出见 §4 |
 | `tools/harness.mjs` | 微型框架 `test/ok/eq/run`，node 与浏览器套件同形状 | §7.2 的 6 行 `rows: N fail: M` 全部由它打印；`tools/verify.sh:101-128` 按同一形状解析浏览器段 |
 | `tools/playtest.mjs` | 零依赖 CDP 驱动：`open/nav/eval/shot/logs` + `witness`/`reload` + Node 侧三条真输入腿（`leg mouse|touch|keys`，`@pointer` 是它们的合计） | 本次**实跑**：五段合计 116 条断言、fail 0（§7.4）。语法由 `npm run check` 的 `node --check tools/*.mjs` 覆盖 |
-| `tools/verify.sh` | 一次性验收门（独立 `mktemp -d` profile、`/json/version` 与 web 内容双就绪、`trap cleanup EXIT` 里对 Chrome/服务器/看门狗都 `wait`、花括号计数截 JSON、`SKIP_UNIT=1`、端口占用即 `exit 6`） | 本次**实跑**（不跳 unit），原文见 §7.4：`=== ALL GREEN ===` rc=0。静态一致性核查见 §2 末行：脚本要求的 `id="lot"` 确实在 `index.html:25`，`window.ferry` 确实在 `js/main.js:474`，`MIN_BROWSER_ROWS=38` 与 `SCENARIOS` 的五段名（boot/play/routes/save/pointer）都在 `tools/playtest.mjs` 里存在：`@boot/@play/@routes/@save/@readback` 是 `:686` 的 `SCENARIOS`，`@pointer` 是 `:173` 的特判 + `:683` 的 `INPUT_LEGS`（mouse/touch/keys 三条腿） |
+| `tools/verify.sh` | 一次性验收门（独立 `mktemp -d` profile、`/json/version` 与 web 内容双就绪、`trap cleanup EXIT` 里对 Chrome/服务器/看门狗都 `wait`、花括号计数截 JSON、`SKIP_UNIT=1`、端口占用即 `exit 6`） | 本次**实跑**（不跳 unit），原文见 §7.4：`=== ALL GREEN ===` rc=0。静态一致性核查见 §2 末行：脚本要求的 `id="lot"` 确实在 `index.html:31`，`window.ferry` 确实在 `js/main.js:474`，`MIN_BROWSER_ROWS=38` 与 `SCENARIOS` 的五段名（boot/play/routes/save/pointer）都在 `tools/playtest.mjs` 里存在：`@boot/@play/@routes/@save/@readback` 是 `:686` 的 `SCENARIOS`，`@pointer` 是 `:173` 的特判 + `:683` 的 `INPUT_LEGS`（mouse/touch/keys 三条腿） |
 | `test/fixture.mjs` | 手算题面：`WGC`、`WGC_ROUTE`（人类散文翻译成的七步）、`PAIR`/`PAIR_ROUTE`、`missionaries(n, rule, cap)` | 被 `test/anchors.test.mjs` import；`:141` 断言这七步本身长度 7 且逐条 `cross()` 通过、终点 `mask = 0 / bank = RIGHT`；期望值不从被测代码读 |
 | `test/anchors.test.mjs` (21) | §0 锚点表逐行复现 + `layerSearch` 独立实现 + 前沿耗尽的不可解 + 手写七步 + 教学性拒步 | `node --test test/anchors.test.mjs`（§5.2） |
 | `test/river.test.mjs` (28) | 冲突判定四个时刻、两条口径、`validate` 负例、编码互逆、纯函数性 | 同上 |
@@ -120,7 +120,7 @@ node 95 条 / 浏览器 116 条、fail 0（2026-10-02 重跑口径），输出�
 | 每条 par 都是奇数（难度带为什么长成 1-3/5-7/9-11/13-15） | `node -e` 打印 `library.js` 的 `ALL.map(l=>l.par)` | `1,1,3,3,3,3,5,5,5,5,7,7,9,9,9,9,11,11,13,13,15,15,15,15`；断言在 `test/make.test.mjs:57` |
 | 全仓没有 `if (n >= 4) return false` 这类特判 | `grep -rn "n >= 4\|n > 3" js/core/`（配合 §5.2 里两条 truncated / 6+6 断言） | 无命中；不可解只由 `solve()` 的前沿耗尽给出 |
 | `hashSeed` 不是教科书 FNV-1a | `node -e 'import("./js/core/rng.js").then(m=>console.log(m.hashSeed("a")))'` | `723832900`（教科书 FNV-1a 是 `3826002220`） |
-| `verify.sh` 内部自洽 | 对读脚本要求与页面/钩子 | 它 grep 的 `id="lot"` 在 `index.html:25`；它轮询的 `window.ferry.state.id` 在 `js/main.js:474`+`:485`；五段场景名在 `tools/playtest.mjs:686`（`SCENARIOS`）与 `:173`+`:683`（`@pointer` = 三条腿）里都存在；`CDP_PORT=9348`/`WEB_PORT=5188` 由脚本 `export` 给 `playtest.mjs`，覆盖后者的 9340/5180 默认值 |
+| `verify.sh` 内部自洽 | 对读脚本要求与页面/钩子 | 它 grep 的 `id="lot"` 在 `index.html:31`；它轮询的 `window.ferry.state.id` 在 `js/main.js:474`+`:489`；五段场景名在 `tools/playtest.mjs:686`（`SCENARIOS`）与 `:173`+`:683`（`@pointer` = 三条腿）里都存在；`CDP_PORT=9348`/`WEB_PORT=5188` 由脚本 `export` 给 `playtest.mjs`，覆盖后者的 9340/5180 默认值 |
 
 ---
 
