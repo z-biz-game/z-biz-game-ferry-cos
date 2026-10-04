@@ -50,7 +50,7 @@ cleanup() {
   wait $CPID 2>/dev/null
   wait $SPID 2>/dev/null
   # No residue: a Chrome still holding the temp profile would be left running for the next agent.
-  RESID=$(pgrep -f "user-data-dir=$UDD" 2>/dev/null | wc -l | tr -d ' ')
+  RESID=$(ps -Ao command= | awk -v u="$UDD" 'index($0, "user-data-dir=" u) && !/--type=/' | wc -l | tr -d ' ')  # path concatenated inside awk: a -v needle spelled out would match this pipeline itself
   [ "${RESID:-0}" != "0" ] && echo "WARNING: $RESID chrome process still holds $UDD" >&2
   rm -rf $UDD
 }
