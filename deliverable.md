@@ -99,7 +99,7 @@ node 95 条 / 浏览器 116 条、fail 0（2026-10-02 重跑口径），输出�
 | 文件 | 作用 | 由谁验证 |
 |---|---|---|
 | `package.json` | `"type":"module"`、零依赖、`check/dev/bake/balance/unit/verify` 脚本 | `npm run check` rc=0（§5.1）；`npm run unit` 与 §5.2 同一集合（脚本 `unit` = `for f in test/*.test.mjs; do node "$f"`） |
-| `.github/workflows/ci.yml` | unit job（`node --check` 全量 + 逐个 `test/*.test.mjs`）+ browser job（`SKIP_UNIT=1`、`WD_TIMEOUT=240`） | **本机未执行 Actions**（无远端、禁止 git 写操作）。它的两个 run 与 `npm run check` / `npm run unit` 的文件集合**逐字一致**（同一条 for-glob），因此 §7.1 与 §7.2 就是它们的本地等价物 |
+| `.github/workflows/ci.yml` | unit job（`node --check` 全量 + 逐个 `test/*.test.mjs`）+ browser job（`SKIP_UNIT=1`、`WD_TIMEOUT=240`） | **本机未执行 Actions**（无远端、禁止 git 写操作）。它的两个 run 现在直接调 `npm run check` / `npm run unit`（同一个脚本，不再抄第二份 glob），因此 §7.1 与 §7.2 就是它们的本地等价物 |
 | `.github/workflows/pages.yml` | 文件拷贝式部署：只 `cp index.html` + `cp -r css js`（绝不 `path: .`） | **本机未执行**。被拷的三样东西就是 `index.html`/`css/`/`js/`，与 `index.html:10,67` 引用的路径一致；`server.cjs`/`tools/`/`test/` 不在产物里 |
 | `README.md` / `DESIGN.md` | 玩法与面向维护者的约束/踩坑说明 | **无自动门禁**。数字复现命令是 `node test/balance.mjs`、`node tools/bake.mjs` 与 §4 那条 scatter 命令；`App 名称` 与 `README.md:1` 的一致性见摘要表第一条 |
 | `.gitignore` / `LICENSE` | 忽略物；MIT，`Copyright (c) 2026 z-biz-game`（`head -3 LICENSE`） | 无门禁 |
@@ -355,7 +355,7 @@ OK
 rc=0
 ```
 
-这一条 with `ci.yml` 的 `Syntax` step **逐字同集合**（同一个 for-glob），所以本地绿 = 那一步绿。
+这一条就是 `ci.yml` 的 `Syntax` step 调的那条 leg（`run: npm run check`），所以本地绿 = 那一步绿。
 
 ### 7.2 `node --test test/`
 

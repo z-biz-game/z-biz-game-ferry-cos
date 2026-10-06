@@ -235,10 +235,10 @@ ok(jobs.length === 2 && jobs.includes('unit') && jobs.includes('browser') && ski
   `D4h ci.yml 的 job 就是文档说的两个（${jobs.join('/')}），browser 带 SKIP_UNIT=1`, `job ${jobs.join('/')} · 文档 SKIP_UNIT=${skipUnit}`);
 ok(/\$\{SKIP_UNIT:-\}/.test(VERIFY) && /SKIP_UNIT: 1/.test(CI), 'D4i SKIP_UNIT 这条线在脚本与 CI 里都接上了（不是文档里的装饰）',
   `verify=${/\$\{SKIP_UNIT:-\}/.test(VERIFY)} · ci=${/SKIP_UNIT: 1/.test(CI)}`);
-const globCheck = (PKG.scripts.check.match(/for f in ([^;]+);/) || [])[1];
-const globCi = (CI.match(/for f in ([^;]+); do node --check "\$f"; done/) || [])[1];
-ok(!!globCheck && !!globCi && globCheck.trim() === globCi.trim(), 'D4j package.json 的 check 与 ci.yml 的 Syntax 步骤是同一个 for-glob（本地绿＝那一步绿）',
-  `check「${(globCheck || '').trim()}」 vs ci「${(globCi || '').trim()}」`);
+const ciCallsLegs = /- name: Syntax\n\s+run: npm run check\b/.test(CI) && /- name: Suites\n\s+run: npm run unit\b/.test(CI);
+ok(ciCallsLegs && /\bnode --check "\$f"/.test(PKG.scripts.check || '') && /test\/\*\.test\.mjs/.test(PKG.scripts.unit || ''),
+  'D4j ci.yml 的 Syntax/Suites 两步就是调 `npm run check` / `npm run unit`，而这两条 leg 自己逐个 node 文件（本地绿＝那一步绿）',
+  `ci 调 leg=${ciCallsLegs} · check=${/\bnode --check "\$f"/.test(PKG.scripts.check || '')} · unit=${/test\/\*\.test\.mjs/.test(PKG.scripts.unit || '')}`);
 const inVerify = /node tools\/doctest\.mjs/.test(VERIFY);
 const inCi = /node tools\/doctest\.mjs/.test(CI);
 const inPkg = (PKG.scripts.doctest || '').trim() === 'node tools/doctest.mjs';

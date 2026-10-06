@@ -28,9 +28,9 @@ jobs:
         with:
           node-version: 22
       - name: Syntax
-        run: for f in js/*.js js/*/*.js server.cjs electron/main.cjs tools/*.mjs test/*.mjs; do node --check "$f"; done
+        run: npm run check
       - name: Suites
-        run: for f in test/*.test.mjs; do echo "::group::$f"; node "$f"; echo "::endgroup::"; done
+        run: npm run unit
       # The sixth gate, byte for byte the command a contributor runs locally (`npm run doctest`,
       # and the same call inside `tools/verify.sh`): every number printed into README / DESIGN /
       # deliverable is compared against what the code reports right now, and each parse carries an
