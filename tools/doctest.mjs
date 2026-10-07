@@ -483,6 +483,10 @@ for (const r of ledger) {
   const tokOf = (body) => {
     const seg = body.includes('::') ? body.slice(body.lastIndexOf('::') + 2) : body;
     if (seg.includes('/')) return '';
+    // 带 `<占位>` 的模板 body 指的是那串字面量前缀（`daily:<本地日期>:<档>` 说的是 `daily` 这个键的形状）。
+    // 只有真写了占位符才这么拆，否则 `test:syntax` 这种脚本名会被拆成 `test`，又是一次假红。
+    const tpl = /^([^<>]+?)<[^<>\s]+>/.exec(seg);
+    if (tpl && ID.test(tpl[1].split(':')[0].trim())) return tpl[1].split(':')[0].trim();
     const head = seg.split('(')[0].trim();
     if (ID.test(head)) return head;
     const lhs = head.split(/[=:]\s/)[0].trim();
@@ -583,11 +587,12 @@ for (const r of ledger) {
   const dgreen = ['`getContext`（`js/view.js:82`）与 `package.json`（' + linesOf('package.json').length + ' 行）',
     '`js/main.js:474`（`window.ferry`）', '`js/core/library.js:26` 的 `LAWS`',
     '`js/view.js:53`（`Math.max(lo, Math.min(hi, v))`）', '`js/view.js:52-53`（`js/view.js::clamp`）',
+    '`js/core/library.js:26`（`LAWS:<档>`）',
     // 带空格的 body 不该被当成名字：这一条在"首词切出来当锚点"的旧写法下必红（那一行没有 npm）。
     '`js/view.js:52`（`npm run doctest`）'];
   const dg = dgreen.map((t) => auditDoc(t));
   ok(dg.every((a) => a.bad.length === 0 && a.refs.length === 1),
-    'D13 真注解与"不该指认"的 body 在同一个解析器下都判绿（后向 / 前向括号 / 前向「的」 / 函数调用形式 / `file::symbol` / 带空格的命令行）',
+    'D13 真注解与"不该指认"的 body 在同一个解析器下都判绿（后向 / 前向括号 / 前向「的」 / 函数调用形式 / `path::symbol` / 模板前缀 / 带空格的命令行）',
     dg.map((a) => (a.bad.join(' | ') || '绿') + `(refs=${a.refs.length})`).join(' · '));
 
   // 反方向的控制：逗号不是指认，前面那个名字只是列表的上一项。这一把只有在那个名字真的不在
