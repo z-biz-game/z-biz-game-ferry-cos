@@ -567,6 +567,9 @@ for (const r of ledger) {
       const lines = linesOf(r.path);
       if (!lines) { bad.push(`${r.path}:${r.from} 文件不存在`); continue; }
       if (r.from < 1 || r.to > lines.length) { bad.push(`${r.path}:${r.from}-${r.to} 越界（${r.path} 共 ${lines.length} 行）`); continue; }
+      // 在界内不等于指得到东西：整段落在空行上时，读者顺行号走过去只看见空白。
+      // 后面那条 continue 让一把只交一行红，八把的计数才有意义。
+      if (lines.slice(r.from - 1, r.to).join('').trim() === '') { bad.push(`${r.path}:${r.from}-${r.to} 那几行整段是空行`); continue; }
       if (r.anchor && !lines.slice(r.from - 1, r.to).join('\n').includes(r.anchor)) {
         bad.push(`${r.path}:${r.from}-${r.to} 那几行里没有 ${r.anchor}`);
       }
@@ -644,10 +647,16 @@ for (const r of ledger) {
   ok(cC.refs.length === 1 && cC.unaddressed === 0, 'D13 同一句改写成完整引用就读得回来：cF 红的是写法，不是解析器漏了这一句',
     `refs=${cC.refs.length} 借不到=${cC.unaddressed}`);
 
-  // 七把假引用：文件不存在、行号越界、后向锚点漂、行数写错，再加上前向括号 / 「的」 /
-  // `file::symbol` 之外最难认的函数调用形式各一把。少一把就是某条分支没牙。
-  const dfake = auditDoc('出处 `js/nope.js:1`、`js/view.js:99999`、`parseHash` 在 `js/view.js:1`、`package.json`（999 行）、`js/view.js:1` 的 `getContext`、`js/view.js:1`（`getContext`）、`js/view.js:1`（`Math.max(lo, Math.min(hi, v))`）');
-  ok(dfake.bad.length === 7, 'D13 七把假引用一把不落（不存在 / 越界 / 后向锚点漂 / 行数错 / 「的」前向漂 / 前向括号漂 / 函数调用形式漂)', dfake.bad.join(' | '));
+  // 八把假引用：文件不存在、行号越界、后向锚点漂、行数写错，再加上前向括号 / 「的」 /
+  // `file::symbol` 之外最难认的函数调用形式各一把，最后一把是无锚点引用整段落在空行上。
+  // 少一把就是某条分支没牙。空行靶子的行号当场从 `js/view.js` 数出来：写死一个数字，那位子哪天
+  // 被填上内容，这一把就悄悄不测了——所以 blankAt > 0 与计数一起判。
+  const viewLines = linesOf('js/view.js') || [];
+  let blankAt = 0;
+  for (let i = 1; i < viewLines.length; i++) if (String(viewLines[i]).trim() === '') { blankAt = i + 1; break; }
+  const dfake = auditDoc('出处 `js/nope.js:1`、`js/view.js:99999`、`parseHash` 在 `js/view.js:1`、`package.json`（999 行）、`js/view.js:1` 的 `getContext`、`js/view.js:1`（`getContext`）、`js/view.js:1`（`Math.max(lo, Math.min(hi, v))`）' +
+    (blankAt ? '、`js/view.js:' + blankAt + '`' : ''));
+  ok(blankAt > 0 && dfake.bad.length === 8, `D13 八把假引用一把不落（不存在 / 越界 / 后向锚点漂 / 行数错 / 「的」前向漂 / 前向括号漂 / 函数调用形式漂 / 无锚点落在空行第 ${blankAt} 行）`, dfake.bad.join(' | '));
   const dgreen = ['`getContext`（`js/view.js:82`）与 `package.json`（' + linesOf('package.json').length + ' 行）',
     '`js/main.js:474`（`window.ferry`）', '`js/core/library.js:26` 的 `LAWS`',
     '`js/view.js:53`（`Math.max(lo, Math.min(hi, v))`）', '`js/view.js:52-53`（`js/view.js::clamp`）',
