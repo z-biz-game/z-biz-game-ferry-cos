@@ -474,10 +474,20 @@ for (const r of ledger) {
 {
   const PATH_SRC = '[\\w./-]+?\\.(?:js|mjs|cjs|sh|json|yml|html|css)';
   const CITE = new RegExp('^(' + PATH_SRC + '):([0-9]+(?:[,-][0-9]+)*)$');
-  // 锚点允许成员路径（`window.ferry`），但不许是文件路径：body 里带 `/` 的那一类是另一条引用，
-  // 把它当锚点按字符串去被指的那几行里找，只会凭空造出假红。
+  // 锚点允许成员路径（`window.ferry`），也允许带路径的 `file.js::symbol`（取 `::` 后段）。
   const ID = /^[A-Za-z_$][A-Za-z0-9_$]{2,}(?:\.[A-Za-z_$][A-Za-z0-9_$]+)*$/;
-  const tokOf = (body) => { if (body.includes('/')) return ''; const t = body.split(/[(:：\s]/)[0]; return ID.test(t) ? t : ''; };
+  // body 什么时候算"名字"：`path/file.js::symbol` 指的是 symbol 而不是那段路径，所以先按 `::` 取后段，
+  // 剩下的里还有 `/` 才是"另一条引用"（拿它当锚点按字符串去被指的那几行里找，只会凭空造出假红）；
+  // `Math.max(lo, hi)` 指的是被调的那个函数，先把参数表切掉；`MAX_ROLES = 12` 取等号左端。
+  // 剩下那些"好几个裸词"的 body 是命令行——`npm run doctest` 的首词 `npm` 不是被引用的东西，硬按它钉就是假红。
+  const tokOf = (body) => {
+    const seg = body.includes('::') ? body.slice(body.lastIndexOf('::') + 2) : body;
+    if (seg.includes('/')) return '';
+    const head = seg.split('(')[0].trim();
+    if (ID.test(head)) return head;
+    const lhs = head.split(/[=:]\s/)[0].trim();
+    return ID.test(lhs) ? lhs : '';
+  };
   const lineCache = new Map();
   const linesOf = (p) => {
     if (!lineCache.has(p)) {
@@ -566,14 +576,26 @@ for (const r of ledger) {
     'D13 文档里每一处「解析 N 条」都等于这条腿自己数到的（删掉这个数字同样算红）',
     `闸数到 ${drefs} · 文档写了 ${dClaims.length} 处：${[...new Set(dClaims)].join('/')}`);
 
-  const dfake = auditDoc('出处 `js/nope.js:1`、`js/view.js:99999`、`parseHash` 在 `js/view.js:1`、`package.json`（999 行）、`js/view.js:1` 的 `getContext`');
-  ok(dfake.bad.length === 5, 'D13 五把假引用一把不落（不存在 / 越界 / 锚点漂（后向）/ 行数错 / 锚点漂（「的」前向）)', dfake.bad.join(' | '));
+  // 七把假引用：文件不存在、行号越界、后向锚点漂、行数写错，再加上前向括号 / 「的」 /
+  // `file::symbol` 之外最难认的函数调用形式各一把。少一把就是某条分支没牙。
+  const dfake = auditDoc('出处 `js/nope.js:1`、`js/view.js:99999`、`parseHash` 在 `js/view.js:1`、`package.json`（999 行）、`js/view.js:1` 的 `getContext`、`js/view.js:1`（`getContext`）、`js/view.js:1`（`Math.max(lo, Math.min(hi, v))`）');
+  ok(dfake.bad.length === 7, 'D13 七把假引用一把不落（不存在 / 越界 / 后向锚点漂 / 行数错 / 「的」前向漂 / 前向括号漂 / 函数调用形式漂)', dfake.bad.join(' | '));
   const dgreen = ['`getContext`（`js/view.js:82`）与 `package.json`（' + linesOf('package.json').length + ' 行）',
-    '`js/main.js:474`（`window.ferry`）', '`js/core/library.js:26` 的 `LAWS`'];
+    '`js/main.js:474`（`window.ferry`）', '`js/core/library.js:26` 的 `LAWS`',
+    '`js/view.js:53`（`Math.max(lo, Math.min(hi, v))`）', '`js/view.js:52-53`（`js/view.js::clamp`）',
+    // 带空格的 body 不该被当成名字：这一条在"首词切出来当锚点"的旧写法下必红（那一行没有 npm）。
+    '`js/view.js:52`（`npm run doctest`）'];
   const dg = dgreen.map((t) => auditDoc(t));
   ok(dg.every((a) => a.bad.length === 0 && a.refs.length === 1),
-    'D13 三种真注解（后向 / 前向括号 / 前向「的」）在同一个解析器下都判绿',
+    'D13 真注解与"不该指认"的 body 在同一个解析器下都判绿（后向 / 前向括号 / 前向「的」 / 函数调用形式 / `file::symbol` / 带空格的命令行）',
     dg.map((a) => (a.bad.join(' | ') || '绿') + `(refs=${a.refs.length})`).join(' · '));
+
+  // 反方向的控制：逗号不是指认，前面那个名字只是列表的上一项。这一把只有在那个名字真的不在
+  // 被指的那几行里才算数——`ZZ_NOT_A_NAME` 不在，所以规则一写宽（把标点当指认）就先被它推翻。
+  const dcomma = auditDoc('`ZZ_NOT_A_NAME`，`js/view.js:82`');
+  ok(dcomma.bad.length === 0 && dcomma.refs.length === 1,
+    'D13 纯标点间隔（`，`）不构成指认：这种写法必须判绿',
+    `解析 ${dcomma.refs.length} 条 · ${dcomma.bad.join(' | ') || '绿'}`);
 
   const dneedle = '`js/main.js:48`（`parseHash`）';
   const dhits = dtext.split(dneedle).length - 1;
