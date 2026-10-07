@@ -474,6 +474,22 @@ for (const r of ledger) {
 {
   const PATH_SRC = '[\\w./-]+?\\.(?:js|mjs|cjs|sh|json|yml|html|css)';
   const CITE = new RegExp('^(' + PATH_SRC + '):([0-9]+(?:[,-][0-9]+)*)$');
+  // 续引：完整引用后面只写行号，`js/main.js:48-55`（`parseHash`）、`stars`（`:143`）。deliverable 里
+  // 这种写法占了它引用的一大半，此前这条腿一条也没读过——它报"零失效"，其实只看了文档的一部分。
+  // 借规则：只向**同一句里最近的那条完整引用**借出处。句号、空行、新标题都会截断这次借。
+  // 正文里提到一个文件名不构成出处：`js/main.js` 后面跟 `（`:48-55`）` 借不到，宁可算进「无法定址」。
+  const BARE = /^:([0-9]+(?:[,-][0-9]+)*)$/;
+  const STOP = /[。！？；]/;
+  const inheritedPath = (text, spans, i) => {
+    for (let j = i - 1; j >= 0; j--) {
+      const pc = spans[j].body.match(CITE);
+      if (!pc) continue;
+      const between = text.slice(spans[j].end, spans[i].s);
+      if (between.includes('\n') && (STOP.test(between) || /\n[ \t]*\n/.test(between) || /\n#{1,6} /.test(between))) return null;
+      return { path: pc[1] };
+    }
+    return null;
+  };
   // 锚点允许成员路径（`window.ferry`），也允许带路径的 `file.js::symbol`（取 `::` 后段）。
   const ID = /^[A-Za-z_$][A-Za-z0-9_$]{2,}(?:\.[A-Za-z_$][A-Za-z0-9_$]+)*$/;
   // body 什么时候算"名字"：`path/file.js::symbol` 指的是 symbol 而不是那段路径，所以先按 `::` 取后段，
@@ -510,9 +526,14 @@ for (const r of ledger) {
     let m;
     while ((m = spanRe.exec(text))) spans.push({ body: m[1], s: m.index, end: m.index + m[0].length });
     const refs = [];
+    const orphans = [];
+    let cont = 0;
     for (let i = 0; i < spans.length; i++) {
       const c = spans[i].body.match(CITE);
-      if (!c) continue;
+      const bare = c ? null : BARE.exec(spans[i].body);
+      if (!c && !bare) continue;
+      const owner = c ? { path: c[1] } : inheritedPath(text, spans, i);
+      if (!owner) { orphans.push(bare[0]); continue; }
       let anchor = '';
       let consumed = false;
       const next = spans[i + 1];
@@ -533,9 +554,12 @@ for (const r of ledger) {
         const shaped = /^[（(]/.test(gT) || /[\w\u4e00-\u9fff]/.test(gT);
         if (shaped && !/\s/.test(prev.body) && gB.length <= 4 && !gB.includes('\n')) anchor = tokOf(prev.body);
       }
-      for (const seg of c[2].split(',')) {
+      // 续引只借路径——它自己印的那些数字才是文档的主张。
+      const range = c ? c[2] : bare[1];
+      if (!c) cont++;
+      for (const seg of range.split(',')) {
         const p = seg.split('-').map(Number);
-        refs.push({ path: c[1], from: p[0], to: p[p.length - 1] || p[0], anchor });
+        refs.push({ path: owner.path, from: p[0], to: p[p.length - 1] || p[0], anchor });
       }
     }
     const bad = [];
@@ -554,7 +578,7 @@ for (const r of ledger) {
       if (!lines) bad.push(`${k[1]}（${k[2]} 行）文件不存在`);
       else if (lines.length !== +k[2]) bad.push(`${k[1]} 实测 ${lines.length} 行，文档写的是 ${k[2]}`);
     }
-    return { refs, bad };
+    return { refs, bad, cont, unaddressed: orphans.length };
   };
 
   // 文档清单从目录里现数，不手抄——手抄的清单会让这条腿自己缩样。
@@ -562,6 +586,8 @@ for (const r of ledger) {
   ok(docFiles.length >= 3, `D13 本仓根下有三份以上的文档可审（输入集不许自己空掉）`, docFiles.join(','));
 
   let drefs = 0;
+  let dcont = 0;
+  let dunaddr = 0;
   const dbad = [];
   let dtext = '';
   for (const f of docFiles) {
@@ -569,6 +595,8 @@ for (const r of ledger) {
     dtext += t + '\n';
     const a = auditDoc(t);
     drefs += a.refs.length;
+    dcont += a.cont;
+    dunaddr += a.unaddressed;
     for (const b of a.bad) dbad.push(`${f} · ${b}`);
   }
   ok(dbad.length === 0, 'D13 文档里每一条 文件:行号 与每一处「N 行」都指到实处',
@@ -579,6 +607,42 @@ for (const r of ledger) {
   ok(dClaims.length >= 1 && dClaims.every((v) => v === drefs),
     'D13 文档里每一处「解析 N 条」都等于这条腿自己数到的（删掉这个数字同样算红）',
     `闸数到 ${drefs} · 文档写了 ${dClaims.length} 处：${[...new Set(dClaims)].join('/')}`);
+
+  ok(dcont >= 1 && dcont < drefs, 'D13 三份文档里确有续引在同句内借到了出处（一条也没有就是这条规则在空转）',
+    `解析 ${drefs} 条 · 续引借到出处 ${dcont} 条`);
+
+  // 借不到出处的那些不当错误、也不静默跳过：数出来写进页面，再由这一条钉住。
+  // 新增一条定不了址的引用会把闸打红，而不是让覆盖面悄悄缩水。
+  const dGap = [...dtext.matchAll(/无法定址 (\d+) 处/g)].map((x) => +x[1]);
+  ok(dGap.length >= 1 && dGap.every((v) => v === dunaddr),
+    'D13 文档里每一处「无法定址 N 处」都等于这条腿数到的借不到出处的续引（删掉这个数字同样算红）',
+    `闸数到 ${dunaddr} · 文档写了 ${dGap.length} 处：${[...new Set(dGap)].join('/')}`);
+
+  // 续引的七把控制腿，全在内存里、不碰仓里的文档：
+  // 借到 / 句尾墙 / 软换行仍算同一句 / 空行与新标题截断 / 借来的路径要喂进边界检查 /
+  // 正文里提到的文件名不构成出处 / 同一句改写成完整引用就读得回来。
+  const cG = auditDoc('`js/main.js:48-55`（`parseHash`）、`stars`（`:143`）');
+  ok(cG.refs.length === 2 && cG.cont === 1 && cG.unaddressed === 0 && cG.bad.length === 0 &&
+    cG.refs.every((r) => r.path === 'js/main.js'),
+    'D13 续引在同句内借到出处，并带上自己那格的指认', `refs=${cG.refs.length} 借到=${cG.cont} 借不到=${cG.unaddressed} 红=${cG.bad.join(' | ') || '无'}`);
+  const cW = auditDoc('`js/main.js:48-55`（`parseHash`）。\n`stars`（`:143`）');
+  ok(cW.refs.length === 1 && cW.unaddressed === 1, 'D13 句号把借的窗口关上：下一句的续引不许挂到上一句的出处上',
+    `refs=${cW.refs.length} 借不到=${cW.unaddressed}`);
+  const cP = auditDoc('`js/main.js:48-55`（`parseHash`）、\n`stars`（`:143`）');
+  ok(cP.refs.length === 2 && cP.unaddressed === 0, 'D13 软换行不算换句：同一句折行后续引照样借得到',
+    `refs=${cP.refs.length} 借不到=${cP.unaddressed}`);
+  const cH = auditDoc('`js/main.js:48-55`（`parseHash`）\n\n## 续\n`stars`（`:143`）');
+  ok(cH.refs.length === 1 && cH.unaddressed === 1, 'D13 空行与新标题同样截断这次借',
+    `refs=${cH.refs.length} 借不到=${cH.unaddressed}`);
+  const cB = auditDoc('`js/main.js:48-55`（`parseHash`）、`stars`（`:99999`）');
+  ok(cB.bad.length === 1 && cB.bad[0].includes('js/main.js') && cB.bad[0].includes('越界'),
+    'D13 借来的路径喂进边界检查：续引写一个越界的行号必须红，并点名被借的那个文件', cB.bad.join(' | ') || '（没红）');
+  const cF = auditDoc('全部样式在 `css/game.css`，第 1 行见 `:1`');
+  ok(cF.refs.length === 0 && cF.unaddressed === 1, 'D13 正文里提到的文件名不是出处：这种写法必须算借不到，而不是在错的行上判绿',
+    `refs=${cF.refs.length} 借不到=${cF.unaddressed}`);
+  const cC = auditDoc('全部样式在 `css/game.css`，第 1 行见 `css/game.css:1`');
+  ok(cC.refs.length === 1 && cC.unaddressed === 0, 'D13 同一句改写成完整引用就读得回来：cF 红的是写法，不是解析器漏了这一句',
+    `refs=${cC.refs.length} 借不到=${cC.unaddressed}`);
 
   // 七把假引用：文件不存在、行号越界、后向锚点漂、行数写错，再加上前向括号 / 「的」 /
   // `file::symbol` 之外最难认的函数调用形式各一把。少一把就是某条分支没牙。
