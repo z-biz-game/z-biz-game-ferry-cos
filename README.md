@@ -31,7 +31,7 @@ node server.cjs            # http://127.0.0.1:5180/
 npm run check              # node --check 全量（CI 的 Syntax 步骤就是这一条）
 npm run unit               # 六个 node 套件（95 条断言）
 bash tools/verify.sh       # node 套件 + 文档数字闸 + 破坏台账 + headless Chrome 真实拖拽验收（五段，门线 ≥38 条）
-node tools/doctest.mjs       # 第六道闸：文档里每个现值 == 代码现值（370 项，含反空转的行数断言）
+node tools/doctest.mjs       # 第六道闸：文档里每个现值 == 代码现值，每条「文件:行号」读回被指的行（377 项，含反空转的行数断言）
 node tools/sabotage.mjs      # 破坏试验台账：8 把刀只改临时副本，逐把要求文档闸点名变红（verify.sh 与 CI 都跑它）
 node test/balance.mjs      # 生成器实测：出题率 / 变异接受率 / 被替换掉的 scatter 对照
 node tools/bake.mjs        # 重新出题并复验，写 js/data/lots.js（本机 4 档合计约 11.6 s）
@@ -125,7 +125,7 @@ node -e 'import("./js/core/library.js").then((L)=>{const s=L.stats();for(const t
    这一格不是配平失败，是这条河真的长这样——所以它印在表里而不是藏起来。
 
 难度带**不是**由 `js/core/make.js:431` 的 `TIERS` 说的：那份 `min/max` 只是生成包络，
-屏幕上与文档里印的是 `js/data/lots.js` 第 7 行的 `TIERS_META`，由 `tools/bake.mjs:196`
+屏幕上与文档里印的是 `js/data/lots.js` 第 7 行的 `TIERS_META`，由 `tools/bake.mjs:196-219`
 从**实际入库的行**里量出来。`test/library.test.mjs` 再比对一次两者并断言四档互不重叠。
 
 ## 为什么生成不在浏览器里跑
@@ -212,6 +212,14 @@ verify.sh、ci.yml、package.json、README 少任何一处调用，文档闸就�
 台账之外的那些数（烘焙与 balance 的毫秒、scatter 的 3521 个样本、浏览器 116 条与各腿分布）
 在 `tools/doctest.mjs` 的 D10 里被登记成 **unpinned 清单**：它们没有代码出处，钉不住，但每条都配一句
 "这段文字还必须在文档里"的反删除断言——钉不住不等于可以删掉让它变绿。
+
+`D1..D12` 钉的是"文档写的数 == 代码算出的数"，`D13` 钉另一半：文档说某个符号坐在第 N 行，被指的那几行里就得真有它。
+它把三份文档里**带路径**的引用逐条读回来（本轮解析 165 条），每条查三件事——文件在不在、行号越不越界、贴在引用旁边的
+名字是否真在那几行里；`name`（`path:NN`）、`path:NN`（`name`）、`path:NN` 的 `name` 三种写法都认。只查越界抓不住
+"漂到隔壁语句"，而这一轮清出来的那些漂移全都还在界内。这条腿自己配五把假引用（不存在 / 越界 / 两种锚点漂 / 行数错）、
+一组三向真注解的阳性对照，和一把只改内存里那一行、不碰仓里文件的毒针。
+它**没有覆盖**两处：`path:NN`+`:MM` 这种"一条引用跨两处"的写法它读不回来（那一类只有 D6 按行号钉住），
+`aria-label` 这种带连字符的名字也构不成锚点；`D13` 目前没有自己的破坏刀，台账的 S3 打的是 D6 那一族。
 
 ## 文件地图
 

@@ -214,7 +214,7 @@ labyrinth  收 6 题  seeds 40 → levels 40 (100%) · unique 29 (73%) · 变异
 
 - `js/core/make.js:431` 的 `TIERS` 是**生成包络**（带里允许哪些 par、允许几个角色、搜索预算多少）。
 - `js/data/lots.js:7` 的 `TIERS_META` 是**已入库的行实际落成的 min/max/两种船各几关**，由
-  `tools/bake.mjs:196` 从 `out` 里量出来。屏幕上、README 表里、`library.stats()` 里印的都是后者。
+  `tools/bake.mjs:196-219` 从 `out` 里量出来。屏幕上、README 表里、`library.stats()` 里印的都是后者。
 
 这两格在别的仓被抄错过，所以钉在两个地方：`test/library.test.mjs` "every band shows both boat laws
 where the data claims it does"（要求 `b.parMin === t.min && b.parMax === t.max`、
@@ -375,7 +375,7 @@ core 里一旦出现 DOM，`node --test` 那一层直接瘫掉 —— 而那一�
 - **`TAP_SLOP`**：浏览器在 pointerdown/pointerup 之间常给一两像素抖动，"点船开船"不能因为抖动就变成
   "什么也没发生"；反过来，一次半途而废的拖船**不许**成行 —— 船回原位、没人上船（`js/view.js:611-623`，
   `@pointer` 有对应断言：把船拖到 20% 距离不动、拖到对岸恰好计 1 单程并获胜）。
-- **命中半径由页面自己公布**（`reach()`，`js/view.js:737`）。台架要断言"点空白处什么都没发生"，
+- **命中半径由页面自己公布**（`reach()`，`js/view.js:754`）。台架要断言"点空白处什么都没发生"，
   就必须先证明那个坐标离所有角色的命中盒都够远 —— 否则这条断言会因为**错误的原因**成立
   （那个坐标根本没落进画布）。
 
@@ -383,7 +383,7 @@ core 里一旦出现 DOM，`node --test` 那一层直接瘫掉 —— 而那一�
 `faultText()` 从 core 返回的 `why` / `conflict` 生成，shell 不重写第二套判定。
 冲突高亮的是**core 报的那两个角色**（`conflict.roles`），不是视图自己配的。
 
-画布上下文**没有**开 `willReadFrequently`（`js/view.js:82`）。理由：像素回读只发生在**台架侧**
+画布上下文**没有**开 `willReadFrequently`：`getContext` 那一行（`js/view.js:82`）只写了 `'2d'`。理由：像素回读只发生在**台架侧**
 （`tools/playtest.mjs:457` 采样 alpha 证明"河真的被画出来了"），shipped 代码不读像素，
 给游戏自己的绘制路径开这个标志是拿性能换一条不会踩门的 warning；
 `tools/verify.sh:173` 的 console 门只拦 `[EXCEPTION]`。这一条与九连环/Gridlock 的做法**不同**，
@@ -415,7 +415,7 @@ pitch 46、命中半径 `max(11, pitch*0.5)` = 23）里用 `window.ferry` 的钩
    `(画布中心 x, 12% 高度)`，那个点离艄公的圆只有 8 px，落在 23 px 命中半径内 ⇒ `down()` 把它认成
    "按在角色上"，`up()` 的 `!wasAboard && !moved` 分支于是**合法地**把艄公装上了船。这条失败打印出来是
    `{"wBefore":1,"wAfter":1}` 却判 FAIL，因为 detail 只印 `trips`，而真的动了的是 `boat.length`。
-   现在右岸列以**右岸沙地**为中心（`js/view.js:135-142`，与命中用的 `bankRect` 同一条线），并且台架在
+   现在右岸列以**右岸沙地**为中心（`js/view.js:144-161`，与命中用的 `bankRect` 同一条线），并且台架在
    按下之前先用页面自己公布的 `reach()` 证明那个坐标既不在船体矩形内也不在任何角色的命中半径内
    （`tools/playtest.mjs:353-371`，多出来的那条 `the point about to be pressed really is open water`）。
    **没有放宽任何期望**：两条原断言原文保留，另加两条前提断言（`:368`、`:400`），`@pointer` 从 38 条变 40 条。
@@ -431,7 +431,7 @@ pitch 46、命中半径 `max(11, pitch*0.5)` = 23）里用 `window.ferry` 的钩
 窗口拿到的是"船上的座位"，而真正按下时人已经回到岸上 ⇒ 那一按谁也没命中，装船**静默失败**，
 后面整条认证路线一起崩（`@pointer` 曾以 1/2 的概率报 6 条失败，detail 长这样：
 `{"before":[],"after":[],"trips":2}`）。规矩因此是：**位置类查询与 `busy()` 必须共用同一条时钟判据**
-（现在都走 `glideNow()`，`js/view.js:182-189`）；只有绘制路径可以继续读裸 `glide`，因为那一帧本来就该画船。
+（现在都走 `glideNow()`，`js/view.js:192-194`）；只有绘制路径可以继续读裸 `glide`，因为那一帧本来就该画船。
 台架没有为此加 `sleep`，断言也没有放宽。
 
 ---

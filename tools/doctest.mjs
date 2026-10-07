@@ -338,7 +338,7 @@ const CITES = [
   ['loadingFault 在 river.js', /`loadingFault`，`js\/core\/river\.js:(\d+)/, 'js/core/river.js', /^export function loadingFault\(/],
   ['cross() 在 river.js', /`cross\(\)`，`js\/core\/river\.js:(\d+)/, 'js/core/river.js', /^export function cross\(/],
   ['lots.js 的 TIERS_META', /lots\.js[`: ]+(?:第 )?(\d+)/, 'js/data/lots.js', /^export const TIERS_META = /],
-  ['bake 量出 TIERS_META 那一处', /tools\/bake\.mjs:(\d+)`[^|]{0,40}?(实际入库的行|从 `out` 里量出来)/, 'tools/bake.mjs', /^const meta = TIERS\.map/],
+  ['bake 量出 TIERS_META 那一处', /tools\/bake\.mjs:(\d+)(?:-\d+)?`[^|]{0,40}?(实际入库的行|从 `out` 里量出来)/, 'tools/bake.mjs', /^const meta = TIERS\.map/],
   ['bake 的 par 复验', /tools\/bake\.mjs:(\d+)`（par 不符）/, 'tools/bake.mjs', /par \$\{lot\.rating\.par\} not reproducible/],
   ['bake 的 routes 复验', /`:(\d+)`（routes 不符）/, 'tools/bake.mjs', /route count \$\{lot\.rating\.routes\} not reproducible/],
   ['bake 的 truncated 复验', /`:(\d+)`（搜索被截断/, 'tools/bake.mjs', /search truncated/],
@@ -350,8 +350,8 @@ const CITES = [
   ['playtest 的 SCENARIOS', /tools\/playtest\.mjs:(\d+)`（`SCENARIOS`）/, 'tools/playtest.mjs', /^const SCENARIOS = \{$/],
   ['anchors 的 layerSearch()', /test\/anchors\.test\.mjs:(\d+)` 的 `layerSearch\(\)`/, 'test/anchors.test.mjs', /^function layerSearch\(/],
   ['make.test 的奇数钉', /test\/make\.test\.mjs:(\d+)` 断言/, 'test/make.test.mjs', /eq\(r\.par % 2, 1/],
-  ['main.js 的 window.ferry', /`window\.ferry\.state\.id` 在 `js\/main\.js:(\d+)`/, 'js/main.js', /^window\.ferry = \{$/],
-  ['main.js 的 state.id', /`js\/main\.js:4\d\d`\+`:(\d+)`/, 'js/main.js', /id: lot && lot\.id,/],
+  ['main.js 的 window.ferry', /`window\.ferry` 在 `js\/main\.js:(\d+)`/, 'js/main.js', /^window\.ferry = \{$/],
+  ['main.js 的 state.id', /`\.state\.id` 在 `js\/main\.js:(\d+)`/, 'js/main.js', /id: lot && lot\.id,/],
   ['main.js 不接 visibilitychange', /`js\/main\.js:(\d+)` 显式不接这个事件/, 'js/main.js', /^\/\/ Deliberately not paused on visibilitychange/],
   ['index.html 的 id="lot"', /`index\.html:(\d+)`/, 'index.html', /id="lot"/],
   ['fixture 的 WGC_ROUTE', /`test\/fixture\.mjs:(\d+)` `WGC_ROUTE`/, 'test/fixture.mjs', /^export const WGC_ROUTE = \[$/],
@@ -465,11 +465,131 @@ for (const r of ledger) {
   ok(/^\d+$/.test(r.rc), `D11 ${r.id} 的 rc 是脚本读回来的数字（? 表示这一版台账还没整跑过）`, `rc=${r.rc}`);
 }
 
+// ---- D13 文档里每一条「文件:行号」逐条读回来 ----
+// D1..D12 钉的是「文档写的数 == 代码算出的数」；这一组钉另一半：文档说"这个符号坐在第 N 行"，
+// 被指的那几行里就得真的有它。只查越界抓不住"落在隔壁语句上"的漂移——本轮清出来的那些全都还在界内。
+// 锚点三个方向都认：`name`（`path:NN`）、`path:NN`（`name`）与 `path:NN` 的 `name`。
+// 第二种是这三份文档里最常见的注解写法，只认第一种会把 `js/main.js:474`（`window.ferry`）这类正确引用判红；
+// 第三种「……的 `符号`」同样是指认，漏了它这二十来条就只剩越界检查，行号漂一格照样绿。
+{
+  const PATH_SRC = '[\\w./-]+?\\.(?:js|mjs|cjs|sh|json|yml|html|css)';
+  const CITE = new RegExp('^(' + PATH_SRC + '):([0-9]+(?:[,-][0-9]+)*)$');
+  // 锚点允许成员路径（`window.ferry`），但不许是文件路径：body 里带 `/` 的那一类是另一条引用，
+  // 把它当锚点按字符串去被指的那几行里找，只会凭空造出假红。
+  const ID = /^[A-Za-z_$][A-Za-z0-9_$]{2,}(?:\.[A-Za-z_$][A-Za-z0-9_$]+)*$/;
+  const tokOf = (body) => { if (body.includes('/')) return ''; const t = body.split(/[(:：\s]/)[0]; return ID.test(t) ? t : ''; };
+  const lineCache = new Map();
+  const linesOf = (p) => {
+    if (!lineCache.has(p)) {
+      let a = null;
+      if (existsSync(join(ROOT, p))) {
+        a = readFileSync(join(ROOT, p), 'utf8').split('\n');
+        if (a[a.length - 1] === '') a.pop();
+      }
+      lineCache.set(p, a);
+    }
+    return lineCache.get(p);
+  };
+  const auditDoc = (text) => {
+    const spans = [];
+    const spanRe = /`([^`\n]+)`/g;
+    let m;
+    while ((m = spanRe.exec(text))) spans.push({ body: m[1], s: m.index, end: m.index + m[0].length });
+    const refs = [];
+    for (let i = 0; i < spans.length; i++) {
+      const c = spans[i].body.match(CITE);
+      if (!c) continue;
+      let anchor = '';
+      let consumed = false;
+      const next = spans[i + 1];
+      const gA = next ? text.slice(spans[i].end, next.s) : null;
+      if (gA !== null && gA.length <= 4 && !gA.includes('\n')) {
+        const gN = gA.replace(/\s+/g, '');
+        if (/^[（(]/.test(gN) || gN === '的') { consumed = true; anchor = tokOf(next.body); }
+      }
+      // 前向没认出注解形状时才接着试后向。假引用台架里「`parseHash` 在 `js/view.js:1`」后面紧跟着
+      // 一个短间隔，早先版本用 `else if` 挂在前向条件上，那一把直接哑了。
+      if (!consumed && i > 0) {
+        const prev = spans[i - 1];
+        const gB = text.slice(prev.end, spans[i].s);
+        // 后向的间隔得是"指认"形状：`（` 或带字的「在/的」。纯标点（`，`、`、`）说明前面那个名字
+        // 只是列表的上一项——deliverable 里「mouse 走 `…`、touch 走 `…`、keys 走 `…`，`playtest.mjs:683`」
+        // 那条引用指的是整个括号，不是最后一个名字，按最后一个名字去钉就是假红。
+        const gT = gB.replace(/\s+/g, '');
+        const shaped = /^[（(]/.test(gT) || /[\w\u4e00-\u9fff]/.test(gT);
+        if (shaped && !/\s/.test(prev.body) && gB.length <= 4 && !gB.includes('\n')) anchor = tokOf(prev.body);
+      }
+      for (const seg of c[2].split(',')) {
+        const p = seg.split('-').map(Number);
+        refs.push({ path: c[1], from: p[0], to: p[p.length - 1] || p[0], anchor });
+      }
+    }
+    const bad = [];
+    for (const r of refs) {
+      const lines = linesOf(r.path);
+      if (!lines) { bad.push(`${r.path}:${r.from} 文件不存在`); continue; }
+      if (r.from < 1 || r.to > lines.length) { bad.push(`${r.path}:${r.from}-${r.to} 越界（${r.path} 共 ${lines.length} 行）`); continue; }
+      if (r.anchor && !lines.slice(r.from - 1, r.to).join('\n').includes(r.anchor)) {
+        bad.push(`${r.path}:${r.from}-${r.to} 那几行里没有 ${r.anchor}`);
+      }
+    }
+    const cntRe = new RegExp('`(' + PATH_SRC + ')`（([0-9]+) 行）', 'g');
+    let k;
+    while ((k = cntRe.exec(text))) {
+      const lines = linesOf(k[1]);
+      if (!lines) bad.push(`${k[1]}（${k[2]} 行）文件不存在`);
+      else if (lines.length !== +k[2]) bad.push(`${k[1]} 实测 ${lines.length} 行，文档写的是 ${k[2]}`);
+    }
+    return { refs, bad };
+  };
+
+  // 文档清单从目录里现数，不手抄——手抄的清单会让这条腿自己缩样。
+  const docFiles = readdirSync(ROOT).filter((f) => f.endsWith('.md'));
+  ok(docFiles.length >= 3, `D13 本仓根下有三份以上的文档可审（输入集不许自己空掉）`, docFiles.join(','));
+
+  let drefs = 0;
+  const dbad = [];
+  let dtext = '';
+  for (const f of docFiles) {
+    const t = read(f);
+    dtext += t + '\n';
+    const a = auditDoc(t);
+    drefs += a.refs.length;
+    for (const b of a.bad) dbad.push(`${f} · ${b}`);
+  }
+  ok(dbad.length === 0, 'D13 文档里每一条 文件:行号 与每一处「N 行」都指到实处',
+    `解析 ${drefs} 条` + (dbad.length ? ` · 指不回实处的 ${dbad.length} 处：${dbad.join(' | ')}` : ''));
+  ok(drefs >= 100, 'D13 这条腿读到的引用数多到它自己算覆盖面（少于 100 条就是缩样）', `本次解析 ${drefs} 条`);
+
+  const dClaims = [...dtext.matchAll(/解析 (\d+) 条/g)].map((x) => +x[1]);
+  ok(dClaims.length >= 1 && dClaims.every((v) => v === drefs),
+    'D13 文档里每一处「解析 N 条」都等于这条腿自己数到的（删掉这个数字同样算红）',
+    `闸数到 ${drefs} · 文档写了 ${dClaims.length} 处：${[...new Set(dClaims)].join('/')}`);
+
+  const dfake = auditDoc('出处 `js/nope.js:1`、`js/view.js:99999`、`parseHash` 在 `js/view.js:1`、`package.json`（999 行）、`js/view.js:1` 的 `getContext`');
+  ok(dfake.bad.length === 5, 'D13 五把假引用一把不落（不存在 / 越界 / 锚点漂（后向）/ 行数错 / 锚点漂（「的」前向）)', dfake.bad.join(' | '));
+  const dgreen = ['`getContext`（`js/view.js:82`）与 `package.json`（' + linesOf('package.json').length + ' 行）',
+    '`js/main.js:474`（`window.ferry`）', '`js/core/library.js:26` 的 `LAWS`'];
+  const dg = dgreen.map((t) => auditDoc(t));
+  ok(dg.every((a) => a.bad.length === 0 && a.refs.length === 1),
+    'D13 三种真注解（后向 / 前向括号 / 前向「的」）在同一个解析器下都判绿',
+    dg.map((a) => (a.bad.join(' | ') || '绿') + `(refs=${a.refs.length})`).join(' · '));
+
+  const dneedle = '`js/main.js:48`（`parseHash`）';
+  const dhits = dtext.split(dneedle).length - 1;
+  const dpoison = auditDoc(dtext.replace(dneedle, '`js/main.js:47`（`parseHash`）'));
+  ok(dhits === 1 && dpoison.bad.some((b) => b.includes('parseHash')),
+    'D13 把文档里一条真引用的行号挪歪一格，这一组必须为它变红',
+    `needle 命中 ${dhits} 处 · 红在 ${dpoison.bad.join(' | ') || '（一处都没红）'}`);
+}
+
 // ---- D12 自数：这道闸自己发出的标签组数 ----
+// 文档点到 `D12` 时，emitted 这一刻还没收到这一条自己的标签（它是求值之后才登记的），
+// 所以只有 D12 自己可以放行；别的编号缺跑照样红，组数由下面 D12a 钉。
 const dMentions = [...new Set((DOCS.match(/(?<![A-Za-z0-9_])D\d+/g) || []))].map(x => +x.slice(1));
-ok(dMentions.every(v => emitted.has(`D${v}`)), 'D12 文档点名的每个 D 编号这一次都真的跑了（删掉一组就会红）',
+ok(dMentions.every(v => v === 12 || emitted.has(`D${v}`)), 'D12 文档点名的每个 D 编号这一次都真的跑了（删掉一组就会红）',
   `文档点到 ${dMentions.sort((a, b) => a - b).join(',') || '（无）'}`);
-ok(emitted.size === 12, `D12a 这道闸自己是十二组：本次发出 ${emitted.size} 个 D 标签`, `${emitted.size} 组`);
+ok(emitted.size === 13, `D12a 这道闸自己是十三组：本次发出 ${emitted.size} 个 D 标签`, `${emitted.size} 组`);
 // README 的「跑起来」里写了这道闸自己发多少项：加一项、减一项都必须同步改文档，
 // 否则文档就在数一个不存在的数——这一条把自己也算进去了。
 const selfClaim = (README.match(/doctest\.mjs[^\n]*?（(\d+) 项/) || [])[1];
