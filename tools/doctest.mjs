@@ -375,7 +375,7 @@ const storageHits = storageLines ? storageLines.split(',') : [];
 ok(storageHits.length === 4 && storageHits.every(n => /window\.localStorage/.test(read('js/core/storage.js').split('\n')[+n - 1] || '')),
   `D6s deliverable 说的「DOM 命中全在 storage.js:${storageLines}」这 ${storageHits.length} 行现在真的都读 window.localStorage`,
   storageHits.map(n => `${n}:${/window\.localStorage/.test(read('js/core/storage.js').split('\n')[+n - 1] || '') ? '有' : '没有'}`).join(' '));
-const cites = [...DOCS.matchAll(/((?:[\w.-]+\/)+[\w.-]+\.(?:js|mjs|cjs|sh|json|html|yml)):(\d+)(?:-(\d+))?/g)];
+const cites = [...DOCS.matchAll(/((?:[\w.-]+\/)+[\w.-]+\.[A-Za-z][A-Za-z0-9]{0,11}):(\d+)(?:-(\d+))?/g)]; // 后缀不许写死：名单里没有的那个后缀，这条腿就永远读不到它，而「都核过了」照样打印
 const bad = [];
 for (const c of cites) {
   let src;
@@ -387,7 +387,7 @@ ok(cites.length >= 50, `D6z 文档里的行号引用解析到 ${cites.length} �
 ok(bad.length === 0, 'D6y 每一条 path:NN 引用都落在真实文件的行数内', bad.length ? `越界：${bad.join('，')}` : `${cites.length} 条全部在范围内`);
 
 // ---- D7 文档点名的文件都还在树里，文件地图也是 ----
-const mentioned = [...new Set([...DOCS.matchAll(/(?:tools|js|test)\/[\w./-]+\.(?:js|mjs|cjs|sh|html)/g)].map(m => m[0]))];
+const mentioned = [...new Set([...DOCS.matchAll(/(?:tools|js|test)\/[\w./-]+\.[A-Za-z][A-Za-z0-9]{0,11}/g)].map(m => m[0]))]; // 后缀不许写死：名单里没有的那个后缀，这条腿就永远读不到它，而「都核过了」照样打印
 const missing = mentioned.filter(x => !existsSync(join(ROOT, x)));
 ok(mentioned.length >= 18 && missing.length === 0, `D7 文档点名的 ${mentioned.length} 个 tools/ js/ test/ 文件都还在树里`,
   missing.length ? `不存在：${missing.join('，')}` : `${mentioned.length} 个全部存在`);
@@ -399,7 +399,7 @@ ok(mapEntries.length >= 18 && mapEntries.every(x => existsSync(join(ROOT, x))),
 ok(/tools\/doctest\.mjs/.test(fileMap || '') && /tools\/sabotage\.mjs/.test(fileMap || ''),
   'D7c 文件地图里有 doctest 与 sabotage 这两把新件（闸加了，地图也得加）', `doctest=${/doctest/.test(fileMap || '')} sabotage=${/sabotage/.test(fileMap || '')}`);
 const deliverMap = (DELIV.match(/## 1\. 文件清单[\s\S]*?(?=\n## 2\.)/) || [''])[0];
-const deliverPaths = [...new Set((deliverMap.match(/(?:tools|js|test)\/[\w./-]+\.(?:js|mjs|cjs|sh|html)/g) || []))];
+const deliverPaths = [...new Set((deliverMap.match(/(?:tools|js|test)\/[\w./-]+\.[A-Za-z][A-Za-z0-9]{0,11}/g) || []))]; // 后缀不许写死：名单里没有的那个后缀，这条腿就永远读不到它，而「都核过了」照样打印
 ok(deliverPaths.length >= 12 && deliverPaths.every(x => existsSync(join(ROOT, x))),
   `D7d deliverable 的文件清单点到 ${deliverPaths.length} 个文件都在树里`, deliverPaths.filter(x => !existsSync(join(ROOT, x))).join('，') || `在树里`);
 
