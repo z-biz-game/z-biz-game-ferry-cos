@@ -1,12 +1,16 @@
 // The content pipeline. This is where the levels in 迷津渡 come from — the browser never
 // generates a crossing, it only picks one.
 //
-// Why offline, with numbers: `node test/balance.mjs` measures the shipped generator at ~0.3 s
-// median and ~1.1 s worst case per top-band level (640 search probes, ~47 k rejected mutations,
-// a few hundred thousand BFS states), and the naive scatter generator it replaced accepts about
-// 0.4% of its samples into that band. That is a fine cost for a build step and an unacceptable
-// one for a tap on the screen. So the generator runs here once, the solver certifies every level
-// it emits, and what ships is the measured set.
+// Why offline, with numbers. Measured in this repo on 2026-09-27 and reproducible with the two
+// commands below (`node test/balance.mjs` at its default SAMPLES=60 per band):
+//   * shipped generator, top band (labyrinth): median 210 ms, worst 2629 ms per seed;
+//   * this baker, top band: 41 452 mutation probes, 339 kept (0.8%), 13 826 measured unsolvable,
+//     27 287 measured no gain; the band in ~9.2 s, a single level in 1110-2414 ms worst case
+//     (the timing column drifts with machine load, the structural numbers do not);
+//   * the naive scatter generator it replaced: 2 016 probes, 1.0% landed in that band.
+// That is a fine cost for a build step and an unacceptable one for a tap on the screen. So the
+// generator runs here once, the solver certifies every level it emits, and what ships is the
+// measured set.
 //
 //   node tools/bake.mjs
 //   PER_TIER=8 node tools/bake.mjs
@@ -35,10 +39,11 @@ const COLLECT = Number(process.env.COLLECT || 40);
 // a lot whose *visible face* (boat law + capacity + measured par + the cast's names) has not been
 // used in this band yet, then the law least represented in that band, then the least represented
 // conflict family, then the par furthest from the ones already kept, then the richer state space,
-// then seed order. The point is not elegance: with strictly-increasing acceptance the generator
-// converges on a handful of canonical shapes (measured: 60 seeds give 14 distinct top-band
-// levels), and "first six unique" would ship two levels the player cannot tell apart on screen —
-// different conflict edges, same cast, same number.
+// then seed order. The point is not elegance: the generator converges on a handful of canonical
+// shapes (measured 2026-09-27, `node test/balance.mjs` 唯一题面 column: 8 distinct 题面 per 60
+// seeds in `shoal`, 36 per 60 in `labyrinth`; `tools/bake.mjs` itself reports `unique 9` of 40
+// seeds for shoal), and "first six unique" would ship two levels the player cannot tell apart on
+// screen — different conflict edges, same cast, same number.
 function faceOf(lot) {
   return `${lot.rating.law}c${lot.rating.capacity}p${lot.rating.par}|${lot.spec.roles.map((r) => r.name).sort().join('')}`;
 }

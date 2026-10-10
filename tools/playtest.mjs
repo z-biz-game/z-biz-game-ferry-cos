@@ -1,22 +1,37 @@
 // Minimal CDP driver for headless playtesting (Node 21+ global WebSocket/fetch). No Playwright,
 // no dependencies.
 // env: CDP_PORT (devtools port, default 9340), BASE_URL (page to attach to, default
-//      http://127.0.0.1:5180/)
+//      http://127.0.0.1:5180/), GATE_SELFTEST=1 (every report this process emits carries one
+//      deliberately wrong expectation, so the gate can be shown to go red — 阴性自证: run
+//      `GATE_SELFTEST=1 bash tools/verify.sh` and check it exits non-zero with that row named;
+//      a gate that never rejects a planted failure is not a gate)
 // usage:
 //   node tools/playtest.mjs open  <url>          # reuse-or-create our page and navigate
-//   node tools/playtest.mjs nav   <url>
+//   node tools/playtest.mjs nav   <url>          # navigate the attached page somewhere else
 //   node tools/playtest.mjs eval  '<js expression>'   # pass `nonav` to skip the reload
-//   node tools/playtest.mjs eval  '@boot'         # | @play | @routes | @save | @pointer
+//   node tools/playtest.mjs eval  '@boot'        # | @play | @routes | @save | @pointer | @readback
+//   node tools/playtest.mjs leg   mouse|touch|keys  # one real-input channel, driven from Node
+//   node tools/playtest.mjs witness               # print the current document's identity (one line)
+//   node tools/playtest.mjs reload                # a real Page.reload, waited on
 //   node tools/playtest.mjs shot  <path.png>
 //   node tools/playtest.mjs logs
 //
-// Every scenario reports { rows, fail } in the same shape as tools/harness.mjs, so
-// tools/verify.sh aggregates node suites and browser suites on one line.
+// `@pointer` is the aggregate of the three input legs (see INPUT_LEGS); `leg <channel>` runs one of
+// them alone while editing it. `@readback` is the consumer of witness/reload and needs them in
+// order: a leg first (any of the three leaves crossings on record), then `witness` to capture the
+// document id, then `WITNESS='<that json>' eval @readback` — that eval navigates, so what it reads
+// back is a new document. `@save` is NOT a valid predecessor: its last rows wipe the archive.
+//
+// Every report is one line: `RESULT {"rows":[{test,pass,detail}...],"fail":[...]}`, plus the
+// pretty JSON when REPORT_JSON=1. tools/verify.sh counts the braces of the first object on the
+// captured stream rather than parsing a whole line: headless Chrome can append its own text to the
+// line a console log lands on, and a truncated payload would read as "this leg has no failures".
 const PORT = process.env.CDP_PORT || 9340;
 // Which page to attach to. Hard-coding the dev-server port silently evaluates against a fresh
 // about:blank tab when pointed at any other origin (GitHub Pages included).
 const BASE = process.env.BASE_URL || 'http://127.0.0.1:5180/';
 const SHELL_TIMEOUT = Number(process.env.SHELL_TIMEOUT || 30000);
+const SELFTEST = process.env.GATE_SELFTEST === '1';
 const ORIGIN = new URL(BASE).origin;
 const isOurs = (u) => typeof u === 'string' && u.startsWith(ORIGIN);
 const cmd = process.argv[2];
@@ -92,6 +107,19 @@ async function main() {
     return r.result.value;
   };
 
+  // One place emits, so a report cannot escape the self-test plant by being produced some other
+  // way. Page-side suites and Node-side input legs both arrive here as { rows }.
+  const emit = (value) => {
+    value.rows = value.rows || [];
+    if (SELFTEST) {
+      value.rows.push({ test: 'GATE_SELFTEST 种下的错期望（1 应当等于 2）', pass: 1 === 2, detail: 'planted red' });
+    }
+    value.fail = value.rows.filter((r) => !r.pass).map((r) => r.test);
+    console.log('RESULT ' + JSON.stringify(value));
+    if (process.env.REPORT_JSON === '1') console.log(JSON.stringify(value, null, 2));
+    if (logs.length) console.log('--- console ---\n' + logs.join('\n'));
+  };
+
   // Wait on the shell, not on a timer. The page is a module graph fetched over the network: a
   // fixed sleep is long enough for a localhost server and too short for GitHub Pages, where it
   // made an innocent deployment look broken (`window.ferry` still undefined, canvas still the
@@ -118,6 +146,20 @@ async function main() {
     await cdp.send('Page.navigate', { url: arg }, sessionId);
     await waitShell(400);
     console.log('navigated\n' + (logs.join('\n') || '(no console output)'));
+  } else if (cmd === 'reload') {
+    // Plumbing, not a report: the proof that this was a real new document belongs to @readback,
+    // which gets handed the timeOrigin captured before this call (see the usage block above).
+    const before = await runJS('performance.timeOrigin');
+    await cdp.send('Page.reload', { ignoreCache: true }, sessionId);
+    const ready = await waitShell(200);
+    const after = await runJS('performance.timeOrigin').catch(() => null);
+    console.log(`reloaded shell=${ready ? 'ready' : 'MISSING'} timeOrigin ${before} -> ${after}`);
+    if (!ready || after === null || after === before) process.exit(1);
+  } else if (cmd === 'witness') {
+    console.log(JSON.stringify(await runJS('JSON.stringify({t:performance.timeOrigin,u:location.href})'))
+      .replace(/^"|"$/g, '').replace(/\\"/g, '"'));
+  } else if (cmd === 'leg') {
+    emit(await INPUT_LEGS[arg](cdp, sessionId, runJS));
   } else if (cmd === 'eval') {
     if (process.argv[4] !== 'nonav') {
       await cdp.send('Page.navigate', { url: BASE }, sessionId);
@@ -125,31 +167,46 @@ async function main() {
     }
     if (arg && arg.startsWith('@')) {
       const name = arg.slice(1);
-      let value = null;
+      // `@pointer` is the browser gate's name for the whole real-input surface: it runs the three
+      // channels in order and reports them as one, because tools/verify.sh drives one `eval` per
+      // scenario and counts the rows it gets back. `leg <channel>` runs exactly one of them.
       if (name === 'pointer') {
-        value = await pointerScenario(cdp, sessionId, runJS);
-      } else if (SCENARIOS[name]) {
-        try {
-          value = await runJS(SCENARIOS[name]);
-        } catch (err) {
-          const dumped = await runJS('JSON.stringify(window.__lastRows||[])').catch(() => '[]');
-          value = { rows: JSON.parse(dumped) };
-          value.rows.push({ test: `@${name} threw`, pass: false, detail: String(err.message).slice(0, 300) });
+        const all = { rows: [] };
+        for (const [chan, fn] of Object.entries(INPUT_LEGS)) {
+          try {
+            const v = await fn(cdp, sessionId, runJS);
+            for (const r of v.rows) all.rows.push({ ...r, test: `${chan} · ${r.test}` });
+          } catch (err) {
+            all.rows.push({ test: `${chan} · leg threw`, pass: false, detail: String(err.message).slice(0, 300) });
+          }
         }
-      } else {
-        console.log('unknown scenario ' + name + ' — have ' + Object.keys(SCENARIOS).join(', ') + ', pointer');
+        emit(all);
+        process.exit(all.fail.length ? 1 : 0);
+      }
+      if (!SCENARIOS[name]) {
+        console.log('RESULT ' + JSON.stringify({ rows: [{ test: `@${name} is not a scenario`, pass: false, detail: 'have: ' + Object.keys(SCENARIOS).join(', ') }], fail: [`@${name} is not a scenario`] }));
         process.exit(1);
       }
-      value.fail = (value.rows || []).filter((r) => !r.pass).map((r) => r.test);
-      console.log(JSON.stringify(value, null, 2));
+      // A leg that compares itself against a pre-navigation witness has to be handed that witness
+      // by Node, because nothing survives the reload except what gets written back in.
+      if (process.env.WITNESS) await runJS(`window.__witness=${process.env.WITNESS};'ok'`);
+      let value;
+      try {
+        value = await runJS(SCENARIOS[name]);
+      } catch (err) {
+        const dumped = await runJS('JSON.stringify(window.__lastRows||[])').catch(() => '[]');
+        value = { rows: JSON.parse(dumped) };
+        value.rows.push({ test: `@${name} threw`, pass: false, detail: String(err.message).slice(0, 300) });
+      }
+      emit(value);
     } else {
       try {
         console.log(JSON.stringify(await runJS(arg), null, 2));
       } catch (err) {
         console.log('EVAL THROW: ' + err.message);
       }
+      if (logs.length) console.log('--- console ---\n' + logs.join('\n'));
     }
-    if (logs.length) console.log('--- console ---\n' + logs.join('\n'));
   } else if (cmd === 'shot') {
     await runJS('new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))');
     const { data } = await cdp.send('Page.captureScreenshot', { format: 'png' }, sessionId);
@@ -163,12 +220,16 @@ async function main() {
   process.exit(0);
 }
 
-// The one suite a page-side script cannot run: real input. Everything below goes through Chrome's
-// own mouse and keyboard over CDP, at coordinates the renderer itself publishes
+// The one thing a page-side script cannot do: real input. These legs go through Chrome's own
+// mouse, touch and keyboard over CDP, at coordinates the renderer itself publishes
 // (`rolePoint`/`boatPoint`), so what gets asserted is the finger-to-rule wiring in js/view.js —
 // that a drag really boards, that a click on the hull really casts off, and that a refusal really
 // costs nothing. Injecting JS to move the boat would prove `depart()` and nothing else.
-async function pointerScenario(cdp, sessionId, runJS) {
+//
+// Three legs, three event channels, one kit: `mouse` sends Input.dispatchMouseEvent, `touch` sends
+// Input.dispatchTouchEvent, `keys` sends Input.dispatchKeyEvent. A leg that fell back to the
+// channel it shares with another leg would print a green that belongs to somebody else.
+async function makeKit(cdp, sessionId, runJS) {
   const rows = [];
   const rec = (name, pass, detail) => rows.push({
     test: name, pass: !!pass,
@@ -177,8 +238,35 @@ async function pointerScenario(cdp, sessionId, runJS) {
   const mouse = (type, x, y, buttons) => cdp.send('Input.dispatchMouseEvent', {
     type, x, y, button: 'left', buttons, clickCount: type === 'mousePressed' ? 1 : 0,
   }, sessionId);
-  const key = (k) => cdp.send('Input.dispatchKeyEvent', {
-    type: 'keyDown', text: k, key: k, code: 'Key' + k.toUpperCase(), windowsVirtualKeyCode: k.toUpperCase().charCodeAt(0),
+  const touch = async (x, y, x2, y2) => {
+    await cdp.send('Input.dispatchTouchEvent', {
+      type: 'touchStart', touchPoints: [{ x, y, radiusX: 6, radiusY: 6, force: 1, id: 1 }],
+    }, sessionId);
+    if (x2 !== undefined) {
+      for (let i = 1; i <= 8; i++) {
+        await cdp.send('Input.dispatchTouchEvent', {
+          type: 'touchMove',
+          touchPoints: [{
+            x: Math.round(x + ((x2 - x) * i) / 8),
+            y: Math.round(y + ((y2 - y) * i) / 8),
+            radiusX: 6, radiusY: 6, force: 1, id: 1,
+          }],
+        }, sessionId);
+      }
+    }
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] }, sessionId);
+    await sleep(50);
+  };
+  const tap = (x, y) => touch(x, y);
+  // keyDown with `text` is what reaches a window keydown listener; the code/virtual-key fields are
+  // what a page that filters on them would see, so a letter key and Space each get their own.
+  // Space and Escape are the two that cannot use `text`: Chrome rejects any text that is not a
+  // single character, and ' ' as text arrives as a keypress on the focused button instead of the
+  // window listener. Those two go as rawKeyDown, which still delivers keydown with ev.key set.
+  const key = (k, code, vk, type = 'keyDown') => cdp.send('Input.dispatchKeyEvent', {
+    type, key: k, code: code || 'Key' + k.toUpperCase(),
+    windowsVirtualKeyCode: vk || k.toUpperCase().charCodeAt(0),
+    ...(type === 'keyDown' ? { text: k } : {}),
   }, sessionId);
   const S = () => runJS('window.ferry.state');
   const point = (expr) => runJS(`window.ferry.${expr}`);
@@ -230,6 +318,13 @@ async function pointerScenario(cdp, sessionId, runJS) {
     await runJS(`window.ferry.load('${hash}'); 'ok'`);
     await settle();
   }
+
+  return { rows, rec, mouse, touch, tap, key, S, point, short, settle, drag, press, clickEl, board, load };
+}
+
+async function mouseLeg(cdp, sessionId, runJS) {
+  const { rows, rec, S, point, short, settle, drag, press, clickEl, board, load } =
+    await makeKit(cdp, sessionId, runJS);
 
   // ---- the control surface actually exists -----------------------------------------
   const ids = await runJS("['lot','modes','totals','crumbs','readout','legend','hintline','curtain','stars','verdict','tally','undo','hint','restart','share','shelf','wipe','toast','next','again'].map((i) => [i, !!document.getElementById(i)])");
@@ -411,25 +506,69 @@ async function pointerScenario(cdp, sessionId, runJS) {
   const hauled = await S();
   rec('dragging the boat across counts exactly one single trip and wins the lot',
     hauled.trips === 1 && hauled.done, hauled);
+  return { rows };
+}
 
-  // ---- the keyboard the panel advertises -------------------------------------------
+// The keyboard channel: js/main.js:450-463 maps u/h/r/Space onto the same DOM buttons the mouse
+// clicks, and Space onto `departNow()` — the very door a press on the hull uses. Each row below is
+// produced by an Input.dispatchKeyEvent and by nothing else. Boarding has no keyboard gesture in
+// this game, so where a row needs crew aboard the *setup* borrows the pointer drag from the kit and
+// the row says so in its own name: what is asserted stays in this channel.
+async function keysLeg(cdp, sessionId, runJS) {
+  const { rows, rec, S, point, short, settle, press, board, load, key } =
+    await makeKit(cdp, sessionId, runJS);
+
+  // ---- h / r with an untouched lot --------------------------------------------------
   await load('#/lot/shoal-01');
   await key('h');
   await sleep(140);
   const hh = await S();
   rec('the h key hints through the same door as the button',
     hh.hints === 1 && /提示/.test(hh.line) && /艄公/.test(hh.line), { hints: hh.hints, line: hh.line });
+  await key('r');
+  await sleep(140);
+  const hr = await S();
+  rec('the r key restarts and takes the hint tally back with it',
+    hr.trips === 0 && hr.boat.length === 0 && hr.hints === 0, hr);
+
+  // ---- Space is the crossing gesture, not a decoration ------------------------------
+  await load('#/lot/shoal-02'); // 自由船, two roles, par 1
+  await key(' ', 'Space', 32, 'rawKeyDown');
+  await sleep(160);
+  const emptyKey = await S();
+  rec("Space on an empty boat reaches depart() and is refused under 'free' without counting",
+    emptyKey.trips === 0 && emptyKey.law === 'free' && emptyKey.fault && emptyKey.fault.why === 'empty',
+    emptyKey);
   await board(0);
   await board(1);
-  await press(await point('boatPoint()'));
+  await key(' ', 'Space', 32, 'rawKeyDown');
+  await sleep(60);
+  await settle();
+  const crossed0 = await S();
+  rec('Space rows the loaded boat: one single trip, everyone across (crew boarded by pointer, no keyboard gesture exists for it)',
+    crossed0.trips === 1 && crossed0.done === true && crossed0.right.length === 2, crossed0);
+  const card = await S();
+  rec('the win card is up after that crossing, which is what Escape will be pressed against',
+    card.curtain === true && card.done === true, card);
+  await key('Escape', 'Escape', 27, 'rawKeyDown');
+  await sleep(140);
+  const afterEsc = await S();
+  rec('the escape key closes the curtain', afterEsc.curtain === false && afterEsc.done === true, afterEsc);
+
+  // ---- u takes a key-crossed trip back ----------------------------------------------
+  await load('#/lot/shoal-01');
+  await board(0);
+  await board(1);
+  await key(' ', 'Space', 32, 'rawKeyDown');
+  await sleep(60);
   await settle();
   const t1 = await S();
-  rec('two of the three aboard still cross legally and cost one trip',
+  rec('two of the three aboard still cross legally by Space and cost one trip',
     t1.trips === 1 && t1.done === false && t1.right.join(',') === '0,1', t1);
   await key('u');
   await sleep(140);
   const t2 = await S();
-  rec('the u key takes the single trip back', t2.trips === 0 && t2.done === false && t2.boat.length === 0, t2);
+  rec('the u key takes that single trip back', t2.trips === 0 && t2.done === false && t2.boat.length === 0, t2);
   await board(0);
   await board(1);
   await board(2);
@@ -440,8 +579,108 @@ async function pointerScenario(cdp, sessionId, runJS) {
   const t4 = await S();
   rec('the r key restarts: count, crew and hint tally cleared',
     t4.trips === 0 && t4.boat.length === 0 && t4.hints === 0, t4);
+  await key('u');
+  await sleep(140);
+  const t5 = await S();
+  rec('u with nothing left to undo costs nothing and moves nobody',
+    t5.trips === 0 && t5.boat.length === 0 && t5.left.length === 3, { trips: t5.trips, boat: t5.boat, left: t5.left, last: await short(0) });
   return { rows };
 }
+
+// The touch channel: the same three gestures a finger gives on a phone — drag a role onto the hull,
+// tap the hull, haul the hull across — sent as Input.dispatchTouchEvent and nothing else. Chrome
+// turns these into pointer events with `pointerType: 'touch'`, so a row that fell back to
+// dispatchMouseEvent here would be proving the mouse path twice and the touch path not at all.
+async function touchLeg(cdp, sessionId, runJS) {
+  const { rows, rec, S, point, settle, touch, tap, load } = await makeKit(cdp, sessionId, runJS);
+  // Local helpers only ever send touch events: this leg must not reach for the mouse kit.
+  const tboard = async (id) => {
+    const rp = await point(`rolePoint(${id})`);
+    const bp = await point('boatPoint()');
+    await touch(rp.x, rp.y, bp.x, bp.y);
+    return { rp, bp };
+  };
+  const thaul = async (from, to) => touch(from.x, from.y, to.x, to.y);
+
+  await load('#/lot/shoal-03'); // 艄公船, capacity 3, par 3
+  const start = await S();
+  const plan = await runJS('window.ferry.plan()');
+  rec('the touch lot loads with a certified par of 3 and a route to match it',
+    start.id === 'shoal-03' && start.par === 3 && start.trips === 0 && plan.length === start.par, { start, plan });
+
+  let counted = 0;
+  for (const cargo of plan) {
+    for (const id of cargo) {
+      const before = await S();
+      const nm = await point(`names()[${id}]`);
+      await tboard(id);
+      const after = await S();
+      rec(`finger drags ${nm} onto the hull and it boards, no single trip spent`,
+        after.boat.indexOf(id) >= 0 && after.trips === before.trips, { before: before.boat, after: after.boat });
+    }
+    const before = await S();
+    const hull = await point('boatPoint()');
+    await tap(hull.x, hull.y);
+    await settle();
+    const after = await S();
+    counted++;
+    rec(`finger tap ${counted}: one tap on the hull is exactly one single trip`,
+      after.trips === before.trips + 1 && after.boat.length === 0 && after.bank !== before.bank,
+      { before: before.trips, after: after.trips, bank: [before.bank, after.bank] });
+  }
+  const won = await S();
+  rec(`the finger plays the whole certified route and no further (${plan.length} single trips)`,
+    counted === start.par && won.done === true, { counted, par: start.par, trips: won.trips });
+  rec('the win card goes up on the touch run too', won.curtain === true && won.stars === '★★★', { curtain: won.curtain, stars: won.stars });
+  const rec0 = await runJS('window.ferry.store.record(window.ferry.state.id)');
+  rec('the touch-run is on record at par and flagged perfect',
+    !!rec0 && rec0.best === start.par && rec0.perfect === true, rec0);
+
+  // ---- capacity and refusal, by finger ----------------------------------------------
+  await load('#/lot/shoal-04'); // 艄公船, capacity 3, four roles
+  for (const id of [0, 1, 2]) await tboard(id);
+  const full = await S();
+  rec('three fingers-worth of drags fill the boat to exactly its capacity',
+    full.boat.length === 3 && full.trips === 0, full);
+  await tboard(3);
+  const over = await S();
+  rec('a fourth role is refused by a real touch drag: capacity holds and nothing is counted',
+    over.boat.length === 3 && over.trips === 0 && over.fault && over.fault.why === 'over',
+    { boat: over.boat, trips: over.trips, fault: over.fault });
+  const aboardPt = await point('rolePoint(2)');
+  const bankPt = await runJS(`(() => { const b = document.getElementById('lot').getBoundingClientRect(); return { x: Math.round(b.left + 40), y: Math.round(b.top + b.height / 2) }; })()`);
+  await thaul(aboardPt, bankPt);
+  const freed = await S();
+  rec('dragging a role back onto the bank by touch unloads it and costs no single trip',
+    freed.boat.indexOf(2) < 0 && freed.trips === 0 && freed.boat.length === 2, freed);
+
+  // ---- a haul that stops short, and one that arrives --------------------------------
+  await load('#/lot/shoal-01'); // 艄公船, capacity 3, par 1
+  for (const id of [0, 1, 2]) await tboard(id);
+  const h0 = await point('boatPoint()');
+  const hDock1 = await point('dockPoint(1)');
+  const travel = hDock1.x - h0.x;
+  rec('the docks are far enough apart that "haul the boat to the far bank" is a touch gesture at all',
+    travel >= 60 && Math.abs(travel * 0.2) > 6 && Math.abs(travel * 0.2) < travel * 0.45,
+    { travel, shortHaul: Math.round(travel * 0.2) });
+  await thaul(h0, { x: h0.x + Math.round(travel * 0.2), y: h0.y });
+  const half = await S();
+  rec('a touch haul that stops short of the far bank casts nobody off and counts nothing',
+    half.trips === 0 && half.boat.length === 3 && half.done === false,
+    { trips: half.trips, boat: half.boat, dragged: Math.round(travel * 0.2) });
+  const h1 = await point('boatPoint()');
+  await thaul(h1, { x: hDock1.x, y: h1.y });
+  await settle();
+  const hauled = await S();
+  rec('the full touch haul across the river counts exactly one single trip and wins the lot',
+    hauled.trips === 1 && hauled.done === true, hauled);
+  return { rows };
+}
+
+// Three channels, one report: `tools/verify.sh` runs the browser suite as `eval @pointer`, so this
+// is where the legs get aggregated. Each row carries its channel in its name — a green from the
+// mouse path and a green from the touch path must not read as the same line.
+const INPUT_LEGS = { mouse: mouseLeg, touch: touchLeg, keys: keysLeg };
 
 // In-page suites. Each returns { rows: [{ test, pass, detail }] }.
 const SCENARIOS = {
@@ -686,6 +925,22 @@ const SCENARIOS = {
     rec('the totals line follows the wipe', /已渡 0\\//.test(D('totals').textContent), D('totals').textContent);
     return { rows };
   })()`,
+  // Reads back what the previous document wrote: the four rows below all live in a document that
+  // `witness` + this call's own navigation put there, so a stale page cannot fake them.
+  readback: `(async () => {
+    const f = window.ferry;
+    const rows = [];
+    const rec = (name, pass, detail) => rows.push({ test: name, pass: !!pass, detail: detail === undefined ? null : JSON.parse(JSON.stringify(detail ?? null)) });
+    window.__lastRows = rows;
+    const w = window.__witness;
+    rec('the harness handed this document a witness from the one before it', !!w && typeof w.t === 'number' && typeof w.u === 'string', { witness: w || null, here: performance.timeOrigin });
+    rec('this is a new document, not the same one re-read', !!w && performance.timeOrigin !== w.t, { before: w && w.t, after: performance.timeOrigin });
+    rec('the shell rebuilt itself in it (hook, route, lot)', !!(f && f.version === 1 && f.state && f.state.id && f.pool && f.pool.lots >= 24), f && f.state && { id: f.state.id, mode: f.state.mode, lots: f.pool.lots });
+    const records = Object.keys(f.store.records);
+    rec('the save written before the reload is still there after it', records.length > 0, { records: records.length, sample: f.store.records[records[0]] || null, key: localStorage.getItem('ferry.save.v1') ? 'present' : 'absent' });
+    return { rows };
+  })()`,
+
 };
 
 main().catch((err) => {

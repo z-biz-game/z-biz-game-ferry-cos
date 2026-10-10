@@ -16,6 +16,10 @@ CDP_PORT=${CDP_PORT:-9348}
 WEB_PORT=${WEB_PORT:-5188}
 BASE=${BASE_URL:-http://127.0.0.1:$WEB_PORT/}
 MIN_BROWSER_ROWS=${MIN_BROWSER_ROWS:-38}
+# The logic tier has a floor of its own: `tools/doctest.mjs` compares this number against the
+# assertion counts it measures by actually running every suite, so lowering the floor is a change
+# the documentation gate notices. Suites only ever get added, never silently dropped.
+MIN_LOGIC_ROWS=${MIN_LOGIC_ROWS:-95}
 CHROME=${CHROME_BIN:-}
 if [ -z "$CHROME" ]; then
   for c in "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" \
@@ -46,7 +50,7 @@ cleanup() {
   wait $CPID 2>/dev/null
   wait $SPID 2>/dev/null
   # No residue: a Chrome still holding the temp profile would be left running for the next agent.
-  RESID=$(pgrep -f "user-data-dir=$UDD" 2>/dev/null | wc -l | tr -d ' ')
+  RESID=$(ps -Ao command= | awk -v u="$UDD" 'index($0, "user-data-dir=" u) && !/--type=/' | wc -l | tr -d ' ')  # path concatenated inside awk: a -v needle spelled out would match this pipeline itself
   [ "${RESID:-0}" != "0" ] && echo "WARNING: $RESID chrome process still holds $UDD" >&2
   rm -rf $UDD
 }
@@ -77,10 +81,41 @@ FAILED=0
 ROWS=0
 
 echo "=== node suites ==="
-for f in test/*.test.mjs; do
-  echo "--- $f"
-  node "$f" || FAILED=1
-done
+LOGIC=0
+if [ -z "${SKIP_UNIT:-}" ]; then
+  for f in test/*.test.mjs; do
+    echo "--- $f"
+    node "$f" > /tmp/ferry-unit.txt 2>&1 || FAILED=1
+    cat /tmp/ferry-unit.txt
+    N=$(grep '^rows: ' /tmp/ferry-unit.txt | tail -1 | awk '{print $2}')
+    LOGIC=$((LOGIC + ${N:-0}))
+  done
+  echo "logic assertions counted: $LOGIC (floor $MIN_LOGIC_ROWS)"
+  [ "$LOGIC" -ge "$MIN_LOGIC_ROWS" ] || { echo "too few logic assertions" >&2; FAILED=1; }
+else
+  echo "SKIP_UNIT=1 — the node suites are their own CI job"
+fi
+
+# The sixth gate: every number printed into README / DESIGN / deliverable is compared against the
+# value the code reports right now. Pure node, no browser, so it belongs in the logic tier — and it
+# reads the docs, so it runs the same way locally and in CI (`node tools/doctest.mjs`).
+if [ -z "${SKIP_UNIT:-}" ]; then
+  echo "=== doc numbers ==="
+  node tools/doctest.mjs > /tmp/ferry-doctest.txt 2>&1 || FAILED=1
+  cat /tmp/ferry-doctest.txt
+  DOCS_ROWS=$(grep '^rows: ' /tmp/ferry-doctest.txt | tail -1 | awk '{print $2}')
+  echo "doc-number assertions counted: ${DOCS_ROWS:-0}"
+fi
+
+# The ledger: eight knives, each one a documented lie written back into a throwaway copy, each one
+# required to turn the gate above red AND name the assertion it bites. A doc gate nobody ever trips
+# is a doc gate nobody can trust — "0 FAIL" also means "the parser found nothing to compare".
+# It belongs in the logic tier because it starts no browser: 7 copies + 1 knife-free control.
+if [ -z "${SKIP_UNIT:-}" ]; then
+  echo "=== sabotage ledger ==="
+  node tools/sabotage.mjs > /tmp/ferry-sabotage.txt 2>&1 || FAILED=1
+  cat /tmp/ferry-sabotage.txt
+fi
 
 export CDP_PORT
 export BASE_URL=$BASE
@@ -142,5 +177,10 @@ echo "browser rows counted: $ROWS (minimum $MIN_BROWSER_ROWS)"
 
 kill $WD 2>/dev/null
 wait $WD 2>/dev/null
+# 部署集闸：ci.yml 跑这两步、本地整闸以前一次都不跑。缺这一步就是「本地全绿、线上 404 自己的
+# manifest / sw.js / 图标」这一整类坏法。它不碰 Chrome，也不读页面，纯查产物。
+echo "=== deploy-set ==="
+node tools/deploy-set.mjs || FAILED=1
+node tools/deploy-set-selftest.mjs || FAILED=1
 [ $FAILED -eq 0 ] && echo "=== ALL GREEN ===" || echo "=== FAILURES ABOVE ==="
 exit $FAILED

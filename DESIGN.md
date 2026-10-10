@@ -37,7 +37,7 @@
 契约禁的是**成本上界由玩家输入决定的无上限搜索**。这里要分两件事，不能一句话打包：
 
 - **生成 = 搜索**，而且很贵：迷津档一颗种子要 123 ms 中位 / 1812 ms 最慢，
-  四万多次变异里只有三百多次被搜索同意（`node test/bake.mjs`、`node test/balance.mjs`，本次实跑，见 §3.3）。
+  四万多次变异里只有三百多次被搜索同意（`node tools/bake.mjs`、`node test/balance.mjs`，本次实跑，见 §3.3）。
   这种东西放进前端就是"手指点一下、页面算一秒"，所以它只在 `tools/bake.mjs` 里发生，
   shipped 代码不 import `js/core/make.js`（`grep -rn "core/make" js/main.js js/view.js js/core/library.js` 为空）。
 - **提示 = 有界的现场搜索**：`js/core/game.js:152` 的 `hint()` 调 `bestCrossing`，
@@ -189,6 +189,13 @@ labyrinth  收 6 题  seeds 40 → levels 40 (100%) · unique 29 (73%) · 变异
 写入 24 题 -> js/data/lots.js
 ```
 
+**这一段是哪一次实测**：上面贴的是本会话第一次烘焙（17:4x）。验收前又跑了两次同一条命令：
+结构性数字**逐位相同**（`seeds 40 → levels 40`、`unique 9 / 20 / 16 / 29`、变异接受
+10/10 · 68/4563 · 194/25146 · 339/41452、直方图八格、`写入 24 题`），产物 md5 三次都是
+`caaf916210af2a3e828c07c52317a303`（与仓里那一版 `diff` 为空 ⇒ 烘焙跨进程可复现，见 §3 开头那句）。
+**只有耗时列在漂**：`最慢一题` 三次分别是 1126 / 1110 / 2414 ms，labyrinth 档 9.3 / 9.2 s。
+所以这张表里能被引用的是带、接受率、状态数；毫秒不是，引用前先重跑 `node tools/bake.mjs`。
+
 三个只有量才知道的事实，都进了文档与断言：
 
 1. **par 只能是奇数**（`1,3,5,7,9,11,13,15`）。船从左岸出发、终点要求船停在右岸，
@@ -205,9 +212,9 @@ labyrinth  收 6 题  seeds 40 → levels 40 (100%) · unique 29 (73%) · 变异
 
 ### 3.1 `TIERS` 与 `TIERS_META`：两个数不能混
 
-- `js/core/make.js:430` 的 `TIERS` 是**生成包络**（带里允许哪些 par、允许几个角色、搜索预算多少）。
+- `js/core/make.js:431` 的 `TIERS` 是**生成包络**（带里允许哪些 par、允许几个角色、搜索预算多少）。
 - `js/data/lots.js:7` 的 `TIERS_META` 是**已入库的行实际落成的 min/max/两种船各几关**，由
-  `tools/bake.mjs:191` 从 `out` 里量出来。屏幕上、README 表里、`library.stats()` 里印的都是后者。
+  `tools/bake.mjs:196-219` 从 `out` 里量出来。屏幕上、README 表里、`library.stats()` 里印的都是后者。
 
 这两格在别的仓被抄错过，所以钉在两个地方：`test/library.test.mjs` "every band shows both boat laws
 where the data claims it does"（要求 `b.parMin === t.min && b.parMax === t.max`、
@@ -216,7 +223,7 @@ where the data claims it does"（要求 `b.parMin === t.min && b.parMax === t.ma
 ### 3.2 排序也是一种口径
 
 战役顺序 = 档从低到高、档内 `par` 升序、`par` 相同再按 `explored`（可通行局面）升序
-（`tools/bake.mjs:150`）。`test/library.test.mjs` 断言同档内 `previous.par <= lot.par` 且 `order` 连续。
+（`tools/bake.mjs:155`）。`test/library.test.mjs` 断言同档内 `previous.par <= lot.par` 且 `order` 连续。
 第二维不是装饰：`ford-01`/`ford-02` 都是 5 单程、40 个可通行局面、`rapids-04` 是 9 单程但 64 个局面 ——
 "7 步穿过 40 个态"是练习，"7 步穿过 400 个态"才是谜题，这句话在 `js/core/solve.js:111` 的注释里，
 而 `states` 这一列就是它的量。
@@ -366,9 +373,9 @@ core 里一旦出现 DOM，`node --test` 那一层直接瘫掉 —— 而那一�
 两处非显然的实现：
 
 - **`TAP_SLOP`**：浏览器在 pointerdown/pointerup 之间常给一两像素抖动，"点船开船"不能因为抖动就变成
-  "什么也没发生"；反过来，一次半途而废的拖船**不许**成行 —— 船回原位、没人上船（`js/view.js:608-621`，
+  "什么也没发生"；反过来，一次半途而废的拖船**不许**成行 —— 船回原位、没人上船（`js/view.js:611-623`，
   `@pointer` 有对应断言：把船拖到 20% 距离不动、拖到对岸恰好计 1 单程并获胜）。
-- **命中半径由页面自己公布**（`reach()`，`js/view.js:737`）。台架要断言"点空白处什么都没发生"，
+- **命中半径由页面自己公布**（`reach()`，`js/view.js:754`）。台架要断言"点空白处什么都没发生"，
   就必须先证明那个坐标离所有角色的命中盒都够远 —— 否则这条断言会因为**错误的原因**成立
   （那个坐标根本没落进画布）。
 
@@ -376,11 +383,56 @@ core 里一旦出现 DOM，`node --test` 那一层直接瘫掉 —— 而那一�
 `faultText()` 从 core 返回的 `why` / `conflict` 生成，shell 不重写第二套判定。
 冲突高亮的是**core 报的那两个角色**（`conflict.roles`），不是视图自己配的。
 
-画布上下文**没有**开 `willReadFrequently`（`js/view.js:82`）。理由：像素回读只发生在**台架侧**
+画布上下文**没有**开 `willReadFrequently`：`getContext` 那一行（`js/view.js:82`）只写了 `'2d'`。理由：像素回读只发生在**台架侧**
 （`tools/playtest.mjs:457` 采样 alpha 证明"河真的被画出来了"），shipped 代码不读像素，
 给游戏自己的绘制路径开这个标志是拿性能换一条不会踩门的 warning；
-`tools/verify.sh:138` 的 console 门只拦 `[EXCEPTION]`。这一条与九连环/Gridlock 的做法**不同**，
+`tools/verify.sh:173` 的 console 门只拦 `[EXCEPTION]`。这一条与九连环/Gridlock 的做法**不同**，
 是有意选择而不是遗漏；若将来要在页面里读像素，就同时把 `willReadFrequently` 与 console 门一起改。
+
+### 7.1 两条被几何咬掉的断言（2026-09-27 实修，因果记在这里）
+
+`@pointer` 曾有两真失败："pressing the open water in place does nothing" 与
+"a haul that stops short of the far bank casts nobody off"。**两条断言写的都是规格 §4 的口径，
+错的是 `layout()` 交出来的几何**。修前/修后都在 1280×820 窗口（画布 886×610、水带宽 570、
+pitch 46、命中半径 `max(11, pitch*0.5)` = 23）里用 `window.ferry` 的钩子量过：
+
+| 量 | 修前 | 修后 |
+| --- | --- | --- |
+| 船体宽 `boatW` | 562（≈整条河） | 214 |
+| 两码头中心距 `dock[1]-dock[0]` | **2 px** | 350 px |
+| 彼岸角色列的画布 x | 443（航道正中，压在船底下） | 799（彼岸沙地上） |
+
+1. **座位宽度被定义成"河面的一个份额"**：`slot = max(pitch*0.8, floor((waterW-30)/capacity))`
+   ⇒ 船体永远等于水宽。后果两条：渡河补间在 2 px 上滑行（画面看不出船动过）；更要紧的是
+   `far` 的判据是 `|dx| > 0.45 × 两码头间距` = **0.9 px**，于是任何一次 1 px 的拖动都算"拖到对岸"。
+   台架要的"拖到 20% 距离"在这种几何下就是 `round(2×0.2)` = 0..1 px ⇒ 半途而废的拉船被结算成靠岸；
+   而 `shoal-01` 的 par 恰好是 1，所以"过拉"一步直接判完成（`done/curtain/busy` 全 true，`boat` 被
+   `depart()` 清空）。规格 §4 写的是"点船（**或拖船到对岸**）= 一次渡河"——没到对岸就不属于那个手势：
+   船回原位、一个人也不上岸。现在座位宽度跟着**角色尺寸**走（`min((waterW-30)/capacity, pitch*1.4)` 取整），
+   船体另外封顶在水宽的 60%，两码头之间必然剩下至少 40% 河面 = 真实行程（`js/view.js:124-131`）。
+2. **右岸的角色网格以水带为中心**：`bankBox[1] = { x: waterX0, w: waterW }` ⇒ 已过河的人站在航道正中、
+   船体底下（截图里直接看得见），而这一列的中心 x 恰好等于画布中心。台架取"空白水面"用的是
+   `(画布中心 x, 12% 高度)`，那个点离艄公的圆只有 8 px，落在 23 px 命中半径内 ⇒ `down()` 把它认成
+   "按在角色上"，`up()` 的 `!wasAboard && !moved` 分支于是**合法地**把艄公装上了船。这条失败打印出来是
+   `{"wBefore":1,"wAfter":1}` 却判 FAIL，因为 detail 只印 `trips`，而真的动了的是 `boat.length`。
+   现在右岸列以**右岸沙地**为中心（`js/view.js:144-161`，与命中用的 `bankRect` 同一条线），并且台架在
+   按下之前先用页面自己公布的 `reach()` 证明那个坐标既不在船体矩形内也不在任何角色的命中半径内
+   （`tools/playtest.mjs:353-371`，多出来的那条 `the point about to be pressed really is open water`）。
+   **没有放宽任何期望**：两条原断言原文保留，另加两条前提断言（`:368`、`:400`），`@pointer` 从 38 条变 40 条。
+
+同一类"画面与状态各说各话"的还有第三格：`frame()` 过去只在动画仍挂着时重绘，于是补间结束的**那一帧没人画**
+—— 河面冻结在"人还在船上"的最后一帧，而旁边面板写着"已在船 0/3"。现在动画集合变空时补画最后一帧
+（`js/view.js:483-493`）。这三格全在 view（像素与手势归它），**`js/core/*` 一条规则都没改**，
+`node --test` 前后都是 95 条、fail 0。
+
+**第四格只有重跑才会露出来**：`busy()` 说"补间结束了"用的是
+`performance.now() >= glide.until`，而 `roleAt()` 说"这个人还在船上"用的是**裸 `glide` 对象** ——
+后者要等下一次 rAF 才被置空。于是 `settle()`（等 `busy`）之后立刻问 `rolePoint(i)`，有大约一帧的
+窗口拿到的是"船上的座位"，而真正按下时人已经回到岸上 ⇒ 那一按谁也没命中，装船**静默失败**，
+后面整条认证路线一起崩（`@pointer` 曾以 1/2 的概率报 6 条失败，detail 长这样：
+`{"before":[],"after":[],"trips":2}`）。规矩因此是：**位置类查询与 `busy()` 必须共用同一条时钟判据**
+（现在都走 `glideNow()`，`js/view.js:192-194`）；只有绘制路径可以继续读裸 `glide`，因为那一帧本来就该画船。
+台架没有为此加 `sleep`，断言也没有放宽。
 
 ---
 
@@ -395,7 +447,7 @@ core 里一旦出现 DOM，`node --test` 那一层直接瘫掉 —— 而那一�
 ### 8.2 `@pointer` 为什么必须存在
 
 页面内注入的断言能证明 `board()/depart()` 对，**证明不了手指点得着船**。`@pointer` 场景
-（`tools/playtest.mjs:171`）跑在 Node 侧：坐标来自页面里的 `window.ferry.rolePoint(i)` / `boatPoint()`，
+（`tools/playtest.mjs:173`）跑在 Node 侧：坐标来自页面里的 `window.ferry.rolePoint(i)` / `boatPoint()`，
 事件是真的 `Input.dispatchMouseEvent` 按下/移动/放开。它断言的是四条口径各自的正反例：
 
 - `shoal-03`（艄公船，par 3）整条认证路线用**真实拖拽**走完，通关卡片在 par 上给出 ★★★，纪录落在 par 且 `perfect`；
@@ -408,7 +460,7 @@ core 里一旦出现 DOM，`node --test` 那一层直接瘫掉 —— 而那一�
 
 ### 8.3 导航之后等的是 shell，不是秒表
 
-`Page.navigate` 之后调 `waitShell()`（`tools/playtest.mjs:99`）轮询 `window.ferry` 的状态，
+`Page.navigate` 之后调 `waitShell()`（`tools/playtest.mjs:127`）轮询 `window.ferry` 的状态，
 `tools/verify.sh` 也一样：先轮 `/json/version` **和** web 根目录（而且 grep 的是
 `id="lot"` 这**一段内容**，不是状态码 —— 一个正在服务别的仓的端口不该被当成"就绪"），
 再轮 boot 关卡 id；取每段结果用**花括号计数**从 console 里截 JSON（headless 会在同一行后面追加文本，
@@ -416,9 +468,9 @@ core 里一旦出现 DOM，`node --test` 那一层直接瘫掉 —— 而那一�
 
 `tools/verify.sh` 里另外三条容易被删掉的保护，都别动：
 
-1. `CDP_PORT` 已被占用时**直接 `exit 6`**，而不是换端口继续（`:32-35`）——
+1. `CDP_PORT` 已被占用时**直接 `exit 6`**，而不是换端口继续（`:36-39`）——
    连到别人的 DevTools 或别人的 index.html 会产出自信的错误结论。
-2. `trap cleanup EXIT` 里对 Chrome、静态服务器**和看门狗**都 `kill` + `wait`（`:43-53`、`:143`），
+2. `trap cleanup EXIT` 里对 Chrome、静态服务器**和看门狗**都 `kill` + `wait`（`:47-57`、`:178`），
    并且用 `pgrep -f "user-data-dir=$UDD"` 检查残留；看门狗那一路还显式
    `</dev/null >/dev/null`，否则它继承了 stdout，跑在管道里会把写端一直攥到超时。
 3. 不要加 `--use-gl=angle --use-angle=swiftshader` 之类软件光栅 flag（`:6-8` 的注释）：

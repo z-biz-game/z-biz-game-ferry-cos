@@ -30,7 +30,9 @@
 node server.cjs            # http://127.0.0.1:5180/
 npm run check              # node --check 全量（CI 的 Syntax 步骤就是这一条）
 npm run unit               # 六个 node 套件（95 条断言）
-bash tools/verify.sh       # node 套件 + headless Chrome 真实拖拽验收（五段，门线 ≥38 条）
+bash tools/verify.sh       # node 套件 + 文档数字闸 + 破坏台账 + headless Chrome 真实拖拽验收（五段，门线 ≥38 条）
+node tools/doctest.mjs       # 第六道闸：文档里每个现值 == 代码现值，每条「文件:行号」读回被指的行（387 项，含反空转的行数断言）
+node tools/sabotage.mjs      # 破坏试验台账：8 把刀只改临时副本，逐把要求文档闸点名变红（verify.sh 与 CI 都跑它）
 node test/balance.mjs      # 生成器实测：出题率 / 变异接受率 / 被替换掉的 scatter 对照
 node tools/bake.mjs        # 重新出题并复验，写 js/data/lots.js（本机 4 档合计约 11.6 s）
 npx electron .             # 桌面壳（需先自行 npm i -D electron，本仓不装）
@@ -46,6 +48,10 @@ npx electron .             # 桌面壳（需先自行 npm i -D electron，本仓
 - **三个手势，一对一映射到模型**（`js/view.js`）：
   把角色拖到船上 = 装船（**不计单程**）、拖回岸上 = 卸船（不计单程）、点船身或把船拉到对岸 = **一次单程**（唯一计数的地方）。
   装船时被拒的角色会抖一下并在面板上说明原因，计数不动。
+- **"拉到对岸"必须真的到对岸**：半途而废的拖船（位移超过点击抖动、但没到对岸那一侧的判定线）
+  船回原位、一个人也不上岸、不计数；判定线是"两码头间距的 45%"，所以船体不许铺满河面
+  （`js/view.js:124-131` 的上限就是这条规则的几何表达，来历见 `DESIGN.md` §7.1）。
+  按在空白河面上则什么都不发生——`@pointer` 里有一条断言先证明按的那个点确实什么都碰不到。
 - **两条船的口径**（`js/core/library.js` 的 `LAWS`，也是面板上"船的法"那一格）：
   - **艄公船** `boat.rule = 'ferry'`：艄公**必须**在船上，另可载 `0..capacity-1` 名乘客，
     船上总人数 ≤ `capacity`。**艄公独自过河合法**——狼羊菜的第 2、4、6 步就是这么走的；
@@ -118,13 +124,13 @@ node -e 'import("./js/core/library.js").then((L)=>{const s=L.stats();for(const t
 2. **迷津档一关自由船都没有**。撒点与变异两条路都量过：8 角色的自由船题要么不可解、要么落不进 13–15 这个带。
    这一格不是配平失败，是这条河真的长这样——所以它印在表里而不是藏起来。
 
-难度带**不是**由 `js/core/make.js:430` 的 `TIERS` 说的：那份 `min/max` 只是生成包络，
-屏幕上与文档里印的是 `js/data/lots.js` 第 7 行的 `TIERS_META`，由 `tools/bake.mjs:191`
+难度带**不是**由 `js/core/make.js:431` 的 `TIERS` 说的：那份 `min/max` 只是生成包络，
+屏幕上与文档里印的是 `js/data/lots.js` 第 7 行的 `TIERS_META`，由 `tools/bake.mjs:196-219`
 从**实际入库的行**里量出来。`test/library.test.mjs` 再比对一次两者并断言四档互不重叠。
 
 ## 为什么生成不在浏览器里跑
 
-因为这里的生成 = 搜索，而搜索不便宜。`node test/bake.mjs`（本次实跑）给的是：
+因为这里的生成 = 搜索，而搜索不便宜。`node tools/bake.mjs`（本次实跑）给的是：
 
 ```
 shoal      seeds 40 → levels 40 (100%) · unique 9 (23%)  · 变异接受 10/10     (100.0%) · 0.0s
@@ -140,7 +146,7 @@ labyrinth  seeds 40 → levels 40 (100%) · unique 29 (73%) · 变异接受 339/
 跑一次有上限的现场搜索（`js/core/game.js:152` 的 `hint()`，`limit = 40000`，状态空间 ≤ 8192）。
 烤进产物的除了关卡还有 `par` / `routes` / `states`，玩家永远不需要等一次搜索才知道"最少几步"。
 
-被替换掉的那个"随机撒点再筛"生成器还留在 `js/core/make.js:375` 的 `scatter()` 里，
+被替换掉的那个"随机撒点再筛"生成器还留在 `js/core/make.js:376` 的 `scatter()` 里，
 因为它给出的正是上面那句结论的数字（本次实跑，40 次调用、3521 个随机题面）：
 
 ```
@@ -161,10 +167,88 @@ scatter labyrinth: probed 3521 · 落进 13-15 带 40 (1.14%) · 不可解 1265 
 - **浏览器层五段**：`tools/playtest.mjs` 起真实 headless Chrome，`@boot @play @routes @save @pointer`
   各段独立返回 `{rows, fail}`，`tools/verify.sh:18` 的门线是五段合计 `MIN_BROWSER_ROWS=38` 条。
   `@pointer` 跑在 Node 侧：坐标取自页面里的 `window.ferry.rolePoint(i)` / `boatPoint()`，
-  事件是真的 `Input.dispatchMouseEvent` 拖拽与按压——把 `shoal-03`（艄公船，par 3）从装船拖到过河走完，
+  事件是真的 `Input.dispatchMouseEvent` / `Input.dispatchTouchEvent` / `Input.dispatchKeyEvent`——
+  mouse 与 touch 两条腿各自把 `shoal-03`（艄公船，par 3）从装船拖到过河走完，
   并断言 `shoal-04`（容量 3）里第四个角色拖不上船、对岸的角色拖不进船、`shoal-02`（自由船）的空船按压
   不计单程，而 `shoal-01`（艄公船）里"把船拖到对岸"恰好计一单程。
-  本文件**没有**印浏览器层的实际条数：那一段由 lead 在统一的 headless Chrome 窗口里跑，不在本次会话内。
+  **本次实跑（`bash tools/verify.sh`，不跳 unit，2026-10-02 重跑）：五段合计 116 条、fail 0**
+  （`@boot` 11 / `@play` 11 / `@routes` 17 / `@save` 13 / `@pointer` 64），console `(none)`，
+  末行 `=== ALL GREEN ===`、rc=0。`@pointer` 是三条真输入腿的合计数（mouse 35 / touch 18 / keys 11），
+  其中 mouse 那 35 条里有 2 条是**前提断言**：
+  按下之前先证明那个坐标真的既不在船体矩形内、也不在任何角色的命中半径内，
+  以及两个码头之间的行程真的长到"拖到对岸"是一个手势（`DESIGN.md` §7.1 记的就是这条来历）。
+
+## 破坏试验台账（8 把刀）
+
+`node tools/sabotage.mjs` 把每一类谎各写回**一份临时副本**里一遍（仓里的真文件一个字都不动，跑完删副本），
+再在副本里跑 `node tools/doctest.mjs`。一把刀算数，必须同时满足：rc != 0 **且**输出点名它那一条 FAIL 行——
+语法炸了也是 rc != 0，但那不是闸红。任何一把没红或没点名，整体判红并点名是哪把。最右列由这个脚本从子进程
+读回来**自己回写**（手抄的数下一次整跑会被它判成不符）；回写之后再跑一次"不带刀对照整跑"，rc=0 才算刀拔干净了。
+台账的每一格（文件、针、改成、期望红行）都由 `tools/doctest.mjs` 的 D11 与脚本里的 `KNIVES` 逐字对上，
+改表格不改脚本、或改脚本不改表格，都会立刻红。
+
+这台台架在 2026-10-03 之前是**第七道"看起来有、实际没跑"的闸**：文件在仓里、README 在写它，
+`tools/verify.sh` 与 `ci.yml` 却都没有调用它——也就是说下面这张表的 rc 一列一旦被回写，
+之后任何一次让它跑不起来的改动（断言改名、针漂了）都不会有人发现。现在它接在 verify.sh 的逻辑档
+（`SKIP_UNIT=1` 的浏览器 job 不重复跑它）和 ci.yml 的 check job 里，而 `D4n` 拿四处同源钉这条接线：
+verify.sh、ci.yml、package.json、README 少任何一处调用，文档闸就红。
+
+最后那句不是修辞——下面这张表的第八把刀 S8 干的就是"把这条调用摘掉"：在临时副本里把 CI 那一行换成
+`run: echo "ledger not wired"`，红的正是 `D4n`，而它打印的四个布尔里只有 `ci=false`、另外三处仍是 `true`
+（逐把证据 `_tmp-ferry-sab-S8.log`）。一把只摘一处的刀能同时报出"其余三处还在"，这条接线才算被钉住，
+而不是被一把大锤整段砸红。
+
+| 刀 | 这一类谎 | 文件 | 针（唯一命中） | 改成 | 期望点名的红行 | rc |
+|---|---|---|---|---|---|---|
+| S1 | 文档抄的实测读数漂一格 | `README.md` | `\| 迷津 labyrinth \| 6 \| 13–15 \| 15 \| 160 / 160 / 212 \|` | `\| 迷津 labyrinth \| 6 \| 13–15 \| 15 \| 161 / 160 / 212 \|` | `D1 labyrinth 可通行局面 min/med/max == 实测现值` | 1 |
+| S2 | 代码改了常数、文档还引用旧值 | `js/core/river.js` | `export const MAX_ROLES = 12;` | `export const MAX_ROLES = 11;` | `D5a 文档写的 MAX_ROLES 处处等于 river.js 现值` | 1 |
+| S3 | 文档的行号引用指回旧位置 | `README.md` | `` `js/core/make.js:431` 的 `TIERS` `` | `` `js/core/make.js:430` 的 `TIERS` `` | `D6 文档引用的「make.js 的 TIERS」` | 1 |
+| S4 | 表格改了形状，正则一条都不命中 | `README.md` | `\| 浅滩 shoal \| 6 \| 1–3 \| 3 \|` | `\| 浅滩 shoal \| 6 \| 1-3 \| 3 \|` | `D1a README 的难度带表解析到 4 行` | 1 |
+| S5 | 锚点表某个态数被改一个位 | `README.md` | `**11** \| 8100 \| 64 / 128 \|` | `**11** \| 8100 \| 65 / 128 \|` | `D2 第 5 行的可通行局面 == 重算的 explored` | 1 |
+| S6 | 门线被调低（浏览器腿可以少一半） | `tools/verify.sh` | `MIN_BROWSER_ROWS=${MIN_BROWSER_ROWS:-38}` | `MIN_BROWSER_ROWS=${MIN_BROWSER_ROWS:-19}` | `D4a README 的门线等于 verify.sh 的 MIN_BROWSER_ROWS` | 1 |
+| S7 | 现场搜索的预算被改小、文档还写着 40000 | `js/core/game.js` | `limit: 40000 }` | `limit: 4000 }` | `D5e 文档写的 hint 预算处处等于 game.js 现值` | 1 |
+| S8 | 台账的调用从 CI 里被摘掉：闸还在、没人跑它 | `.github/workflows/ci.yml` | `run: node tools/sabotage.mjs` | `run: echo "ledger not wired"` | `D4n 破坏台账接进了 verify.sh、ci.yml` | 1 |
+
+台账之外的那些数（烘焙与 balance 的毫秒、scatter 的 3521 个样本、浏览器 116 条与各腿分布）
+在 `tools/doctest.mjs` 的 D10 里被登记成 **unpinned 清单**：它们没有代码出处，钉不住，但每条都配一句
+"这段文字还必须在文档里"的反删除断言——钉不住不等于可以删掉让它变绿。
+
+`D1..D12` 钉的是"文档写的数 == 代码算出的数"，`D13` 钉另一半：文档说某个符号坐在第 N 行，被指的那几行里就得真有它。
+它把三份文档里的引用逐条读回来（本轮解析 203 条），每条查四件事——文件在不在、行号越不越界、被指的那几行是不是整段空行、贴在引用旁边的名字是否作为一个
+完整标识符出现在那几行里。指认的贴法认六种：`name`（`path:NN`）、`path:NN`（`name`）、`path:NN` 的 `name`、
+`path:NN`（`fn(a, b)`）这种函数调用（先把参数表切掉再认 `fn`）、`path:NN`（`dir/file.js::symbol`）（先按
+`::` 取后段，剩下的里还有 `/` 才判"那是另一条引用、不是名字"），以及带 `<占位>` 的模板 body 取其字面量前缀
+（`LAWS:<档>` 说的是 `LAWS`）。只查越界抓不住"漂到隔壁语句"，
+而这一轮清出来的那些漂移全都还在界内。这条腿自己配九把假引用（不存在 / 越界 / 后向锚点漂 / 行数错 /
+「的」前向漂 / 前向括号漂 / 函数调用形式漂 / 无锚点那条整段落在空行上——空行靶子的行号当场从 `js/view.js`
+数出来、不写死常量，所以那位子哪天被填上内容这一把会连着 `blankAt > 0` 一起失效并被抓住 / 前缀不算整词）、七组真注解与"不该指认"body 的阳性对照（其中带空格的命令行
+body 那一组是防过敏：按首词切的老写法会拿 `npm` 当名字，在自己人造的那一行上红）、一把"逗号不算指认"的反样本，
+和一把只改内存里那一行、不碰仓里文件的毒针。
+空行那一把另有的一次性牙齿证明（`_tmp-ferry-blank-teeth2.log`，判词 `TEETH_OK`：拿 `_scratch/` 下的**副本**
+把 DESIGN 里一条界内、当前不落在空行的真引用挪到 `js/view.js` 的那条空行上，只交出 1 行红、红行点名
+「js/view.js:14-14 那几行整段是空行」，而「解析 203 条」一格没动（所以那条红不来自计数对账）；把引用改回去
+rc 回 0。盘上的仓一个字没改，副本跑完即删）。
+锚点这一格认的是**整词**，不是子串：`MAX_ROLE` 坐在声明 `MAX_ROLES` 的那一行上不算命中，名字两侧再是字母、
+数字、`_`、`$` 就不是这个标识符本身。子串口径比它替掉的那份手抄清单**更弱**——一个短名字会"出现在"任何
+碰巧含它的标识符里，于是把一次真的漂读成绿（判绿比判红糟）。上面那第九把刀写的正是这种前缀写法：这条腿哪天
+退回子串，那把刀当场不再红、这一格当场少一把，断言跟着红。同一条腿里另一张手抄的 `ANCHORS` 表（题面 ↔ 船口径
+↔ 容量，D2a 数的就是它的行数）核的是抄进去的**字面串**——`艄公船`、`自由船` 这类根本不是标识符的写法，
+所以整词只加在现推锚点这一格：两处口径不同是设计，不是漏。换口径这一轮三份文档里已有的带指认引用一条都没
+因此变红（红的只会是这条腿自己插了行、文档挂着的行号漂到隔壁，那种一律 grep 真实行号改文档，不是放宽口径
+糊过去），所以这道同样是加严，不是修一处已经存在的漂。牙也是两双腿，都跑在同名副本上（读数与判词
+`_tmp-ferry-word-teeth.log`，判词 `TEETH_OK`）：A 腿把这条腿的锚点检查改回子串，全部 387 项里只有那一条
+"九把假引用"红，而它自己交回的读数写成 8 把——红在"少了一把"而不是"全部抓到"；B 腿把 deliverable 里那条
+`loadingFault` 引用的名字截成它的前缀，锚点那一格为它红、红行点名「那几行里没有」，改回原文两双腿都回全绿
+（副本基线与盘上同一份读数）。
+它还读**续引**：完整引用后面只写行号的那种（`path:NN` 之后光写几个数字），deliverable 里成片的引用就是这么写的，
+此前一条也没被读过——那条腿报"零失效"时其实只看了文档的一部分。规则是只向**同一句里最近的那条完整引用**
+借出处：句号、空行、新标题都会截断这次借；借来的只有路径，行号仍按文档自己印的那些数字审。
+**正文里提到一个文件名不构成出处**——写了文件名却没带行号，后面那句里的光杆行号借不到，宁可计入「无法定址」，
+也不要在错的文件上判绿（判绿比判红糟）。本轮实测：解析 203 条已逐条读回，
+另有无法定址 20 处（同一句里借不到出处的续引），这两个数写在页面上并由同一条腿钉住（新增一处定不了址的引用会把闸打红，而不是让覆盖面悄悄缩水）。
+它**没有覆盖**两处：`aria-label` 这种带连字符的名字构不成锚点，带空格的 body（命令行那一类）只查越界、不查锚点；
+锚点这一格证的是"印出来的行号还在它说的那几行里"，不是"文档每句话都对"。
+`D13` 目前没有自己的破坏刀，台账的 S3 打的是 D6 那一族。
 
 ## 文件地图
 
@@ -183,10 +267,12 @@ js/view.js            canvas 2D 绘制（河 / 两岸 / 船 / 角色）+ 三种�
 js/main.js            路由、DOM、存档写入、window.ferry 测试钩子
 server.cjs            零依赖静态服务器（默认 5180）
 electron/main.cjs     桌面壳（复用同一个服务器，port: 0）
-tools/bake.mjs        出题 → 序列化后复验 → 写 js/data/lots.js，并打印实测直方图与接受率
+tools/bake.mjs        出题 → 序列化后复验 → 写 js/data/lots.js，并打印实测直方图与接受率 / tools/assemble-site / tools/deploy-set / tools/deploy-set-selftest
 tools/playtest.mjs    零依赖 CDP 驱动：注入、真实鼠标拖拽、截图、抓 console
 tools/verify.sh       一次性验收门（独立 profile、双端点就绪轮询、花括号计数截 JSON、SKIP_UNIT）
 tools/harness.mjs     微型测试框架，node 与浏览器套件输出形状一致
+tools/doctest.mjs     第六道闸：README / DESIGN / deliverable 里每个现值 == 代码现值，每条解析配反空转行数断言
+tools/sabotage.mjs    破坏试验台账：刀只改临时副本，逐把要求上那道闸点名变红，实测 rc 由脚本读回来
 test/                 六个套件 + 手算 fixture（fixture.mjs）+ 难度台架 balance.mjs
 ```
 
@@ -210,3 +296,52 @@ test/                 六个套件 + 手算 fixture（fixture.mjs）+ 难度台�
 ## License
 
 MIT © 2026 z-biz-game
+
+## 上线的到底是哪一批文件
+
+这个仓没有打包器：站点=一次文件拷贝。以前「拷哪些」写在 `pages.yml` 的 `run:` 里（手抄的几行
+`cp`）。本地 `index.html` 直读仓库根，永远自洽；线上却按那份清单拷，于是页面后来引用的
+`manifest.webmanifest`、`sw.js`、`icons/*` 可能一个都没上去——线上 404，而仓里的引擎测试与
+真浏览器闸全绿，因为它们跑的都是仓库根，没有任何一步在「按清单拷」的那个环境下加载过页面。
+
+现在清单只有一份，住在 `tools/assemble-site.sh`：CI 调它拷 `_site`，本地闸调它拷临时目录，
+然后**对拷出来的产物**提要求（`tools/deploy-set.mjs`）：
+
+- **W 清单与页面同源**：`pages.yml` 里必须真有 `run: bash tools/assemble-site.sh <dir>` 这一行，
+  `ci.yml` 里必须真有 `run: node tools/deploy-set.mjs`。认的是调用那一行，不是文件里出现过这个
+  路径——注释里本来就会写它，只 grep 字符串会被一句散文喂绿。
+- **R 引用可达**：引用不靠手打名单。从 `index.html` 的 `href/src` 出发，凡解析出来是 `.js`/`.css`
+  的就把那一站也扫一遍（CSS 的 `url()`、JS 去掉注释后的 `'./…'` 字面量、`new URL(x, base)` 的两种
+  基、`navigator.serviceWorker.register`、`scope`），`manifest` 的 icons/screenshots/shortcuts 各自
+  的 `src` 也算引用。取径上读不到的那一站本身就是红（读不到＝这一站根本没扫）。每条引用都必须在
+  产物里且非 0 字节；绝对路径单列一条红，因为 Pages 挂在 `/<repo>/` 前缀下会跳出去。
+- **P 位图不许说谎**：`manifest` 声明的 `sizes` 必须等于 PNG IHDR 的真实宽高——文件图标读文件头，
+  内联成 base64 的图标先解码再读同一段。后一条不是可选项：图标可能住在清单里而不是盘上的 `.png`
+  （有的仓另有一条"零二进制文件"的承诺，那条只约束"有没有 .png 这个文件"）；如果 P 段只筛文件名，
+  声明写 512 而真图 192 就一路放行。
+- **钉住两个数**：R 段实际检查的路径条数（`25`）与这一次跑的断言条数（`43`），两个数
+  都钉在 `tools/deploy-set.mjs` 顶部的那对常量里。没改页面却掉了，说明解析断了；删掉一张图标会同时
+  少一条 R10 与那张的 P1/P2，所以两个数一起钉，断言条数能漂就是闸在缩水的信号。这一节故意只写数值、
+  不写那对常量的名字，也不写别仓文档闸的编号：有的仓的文档闸会拿"文档里出现过的同名标识号"回数它
+  自己的条数，还有的会把文档里点到的每个组编号逐个核对"这一轮真的发过"——两道闸共用一个名字，
+  或者在本仓的文档里出现一个本仓没有的组编号，打红的都是不相干的那一边。
+
+`tools/deploy-set-selftest.mjs` 是这两颗钉的阳性证明：它把仓库复制到临时目录，照着每一类断言
+各下一刀（X1 清单不收位图目录 / X2 模块边改名 / X3 CSS 写绝对路径 / X4 `start_url` 绝对 /
+X5 删光 >=512 图标 / X6 少一个必填字段 / X7 声明尺寸与真图不符 / X8 workflow 不调脚本 /
+X9 CI 不跑闸 / X10 是阴性对照——往入口 JS 追加一行只写在注释里的假路径，闸必须仍然绿、条数仍然
+`25`、断言仍然 `43`；X11 og:image 退回相对路径 / X12 og:image 的前缀指向别的 slug /
+X13 内联位图谎报尺寸——只在有靶子时下：X11/X12 要页面上那句 og:image，X13 要清单里真有一段 base64
+图标，没有就打印 SKIP；反过来 X1 没有位图目录可砍时改砍 css，P 段一位都不核时台架直接报靶子不够），
+要求每一刀都让闸**点名**变红。靶子从 `DEPLOY_SET_DUMP=1`
+的出处表现挑（取径真的会读的那支 JS / 那一张 CSS，不写死某一个仓的入口名），所以页面改了、仓与仓
+不同，台架跟着走。
+
+`node tools/deploy-set.mjs` 与 `node tools/deploy-set-selftest.mjs` 就是 CI 跑的那两条命令本身
+（package.json 里的 `deploy-set` / `deploy-set:selftest` 只是同一支脚本的 npm 入口）；本仓的整闸在 `tools/verify.sh` 的 `=== deploy-set ===` 那一段也各跑一次。它们红的时候并进本仓那条出口的退出码——这一条是这么证的：
+把 ci.yml 里那行 `run: node tools/deploy-set.mjs` 砍掉，本仓整闸必须点名红且退出码非 0。
+所以「本地全绿、线上 404 自己的 manifest / sw.js / 图标」这一类坏法在本地就会红。
+
+## 在线试玩
+
+<https://z-biz-game.github.io/z-biz-game-ferry-cos/>（`main` 分支推送即自动部署）

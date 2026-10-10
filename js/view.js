@@ -126,11 +126,15 @@ export function createView(canvas, hooks = {}) {
   let geo = null; // last layout, in canvas-local px: what every hit test and the harness read
   let carry = null; // { id, x, y, moved, aboard }
   let haul = null; // boat being dragged: { x0, dx, moved }
-  let glide = null; // { from, to, cargo, t, dur }
-  let shake = null; // { ids, boat, t, dur }
-  let flare = null; // { roles, bank, why, t, dur }
-  let mark = null; // { cargo, t, dur } — the hint's "load these"
-  let particles = []; // { x, y, vx, vy, t, dur, r } — wake behind a travelling hull
+  let glide = null; // { from, to, cargo, until }
+  let shake = null; // { ids, boat, until }
+  let flare = null; // { roles, bank, until, why }
+  // 减弱动效闸门。shake 的位移是 x += Math.sin(now / 22) * 4 * (...)：一段纯装饰的来回摆动。
+  // 减弱动效下**只去掉位移，不去掉 shake 本身**——shake 身上还挂着 ids，
+  // 它是"刚才被拒的是哪几个子"这条信息唯一的载体，连它一起删掉，玩家就收不到任何反馈了。
+  // 于是：形状/高亮照旧，位移恒为 0；信息留住，晃动没有。
+  let reduceMotion = false;
+  let mark = null; // { cargo, until } — the hint's "load these"
   let raf = 0;
   let paused = false;
   let lastTs = 0;
@@ -334,13 +338,23 @@ export function createView(canvas, hooks = {}) {
     return { x: bb.x, y: bb.y, w: bb.w, h: bb.h };
   }
 
+  // The cosmetic glide is over the instant `busy()` says so; the animation loop only comes along
+  // on the next frame to drop the object. Reading the raw `glide` where a *position* is asked for
+  // would keep publishing "this role is still riding the hull" for up to a frame after the counter
+  // reported the landing, and a caller that waited on `busy` (the harness does exactly that) would
+  // then press a point the next frame no longer owns. Positions use the live view of it.
+  function glideNow() {
+    return glide && performance.now() < glide.until ? glide : null;
+  }
+
   function roleAt(id) {
     const g = geo;
     const seatR = (bb) => Math.max(8, Math.min(g.pitch * 0.42, ((bb.w - 22) / Math.max(1, g.comp.capacity)) * 0.46));
-    if (glide && glide.cargo.indexOf(id) >= 0) {
+    const gl = glideNow();
+    if (gl && gl.cargo.indexOf(id) >= 0) {
       // Still riding: pinned to the boat until the cosmetic glide ends.
       const bb = boatBox();
-      const k = glide.cargo.indexOf(id);
+      const k = gl.cargo.indexOf(id);
       const slot = (bb.w - 22) / Math.max(1, g.comp.capacity);
       return {
         x: Math.round(bb.x + 11 + slot * (k + 0.5)),
@@ -479,9 +493,9 @@ export function createView(canvas, hooks = {}) {
     const g = geo;
     const deck = bb.y + g.boatH * 0.52;
     ctx.save();
-    if (shake && shake.boat) {
-      const k = 1 - shake.t / shake.dur;
-      ctx.translate(Math.sin(animClock * 42) * 5 * k, 0);
+    if (shake && shake.boat && now < shake.until && !reduceMotion) {
+      const k = (shake.until - now) / SHAKE_MS;
+      ctx.translate(Math.sin(now / 24) * 5 * k, 0);
     }
     if (glide && !reducedMotion) {
       // Wake behind the hull while it travels.
@@ -567,8 +581,8 @@ export function createView(canvas, hooks = {}) {
     let y = pos.y;
     let alpha = 1;
     if (carry && carry.id === id) return; // drawn last, under the finger
-    if (shake && shake.ids.indexOf(id) >= 0) {
-      x += Math.sin(animClock * 46) * 4 * (1 - shake.t / shake.dur);
+    if (shake && shake.ids.indexOf(id) >= 0 && now < shake.until && !reduceMotion) {
+      x += Math.sin(now / 22) * 4 * ((shake.until - now) / SHAKE_MS);
     }
     if (pos.bank !== undefined && pos.bank !== game.bank) alpha = 0.45; // out of reach, same rule
     if (glide && glide.cargo.indexOf(id) >= 0) alpha = 1;
@@ -927,6 +941,8 @@ export function createView(canvas, hooks = {}) {
     },
     measure,
     redraw: draw,
+    setReduceMotion(v) { reduceMotion = !!v; if (reduceMotion) draw(); return reduceMotion; },
+    isReducedMotion: () => reduceMotion,
     busy,
 
     // A successful crossing: remember where it came from so the hull can travel and the crew can
@@ -1023,7 +1039,7 @@ export function createView(canvas, hooks = {}) {
         ...p,
         r: Math.round(pos.r || Math.max(10, geo.pitch * 0.42)),
         aboard: game.boat.indexOf(id) >= 0,
-        riding: !!(glide && glide.cargo.indexOf(id) >= 0),
+        riding: pos.riding === true, // roleAt() already resolved the glide against the clock
         bank: pos.bank === undefined ? game.bank : pos.bank,
       };
     },
