@@ -338,7 +338,7 @@ node -e 'import("./js/core/rng.js").then(m=>console.log(m.hashSeed("a")))'   # 7
 | 外壳 | `js/main.js` | 路由、DOM、存档写入、`window.ferry` | 规则细节（不自己判船能不能开） |
 
 `grep -rn "window\.\|document\." js/core/` 只应该命中 `js/core/storage.js` 的守卫式访问
-（`:30` 的 `typeof window !== 'undefined'` 与 `:37/:64` 的 `window.localStorage`，三处都包在 try/catch 里）。
+（守卫本身是 `js/core/storage.js:29-30` 的 `hasDOM`，它不在 try 里；三处真读写 `js/core/storage.js:37,64,122` 每一处都包在 try/catch 里）。
 core 里一旦出现 DOM，`node --test` 那一层直接瘫掉 —— 而那一层是本仓全部主张所在。
 
 `js/core/game.js` 把两件事分开，这是 §2 那些判据能落到手指上的前提：

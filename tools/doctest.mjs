@@ -538,11 +538,17 @@ for (const r of ledger) {
     while ((m = spanRe.exec(text))) spans.push({ body: m[1], s: m.index, end: m.index + m[0].length });
     const refs = [];
     const orphans = [];
+    const odd = [];
+    const bares = [];
+    const binds = [];
     let cont = 0;
     for (let i = 0; i < spans.length; i++) {
       const c = spans[i].body.match(CITE);
       const bare = c ? null : BARE.exec(spans[i].body);
-      if (!c && !bare) continue;
+      // 异形续引（`:37/:64`、`:48,:59`）：以 `:` 开头、后面跟着数字，BARE 与 CITE 都不认它，
+      // 于是这一格既不借出处、也不计入「无法定址」——它比借不到的那种更糟，是彻底没人开文件。
+      // 不静默跳过：数出来交给 D13b 钉，写法本身由文档改成正经的带路径引用。
+      if (!c && !bare) { if (/^:[0-9]/.test(spans[i].body)) odd.push(spans[i].body); continue; }
       const owner = c ? { path: c[1] } : inheritedPath(text, spans, i);
       if (!owner) { orphans.push(bare[0]); continue; }
       let anchor = '';
@@ -568,10 +574,15 @@ for (const r of ledger) {
       // 续引只借路径——它自己印的那些数字才是文档的主张。
       const range = c ? c[2] : bare[1];
       if (!c) cont++;
+      const cellRefs = [];
       for (const seg of range.split(',')) {
         const p = seg.split('-').map(Number);
-        refs.push({ path: owner.path, from: p[0], to: p[p.length - 1] || p[0], anchor });
+        const r = { path: owner.path, from: p[0], to: p[p.length - 1] || p[0], anchor };
+        refs.push(r);
+        cellRefs.push(r);
       }
+      if (!c) bares.push(cellRefs[0]);
+      if (anchor) binds.push(cellRefs[0]);
     }
     const bad = [];
     for (const r of refs) {
@@ -592,7 +603,7 @@ for (const r of ledger) {
       if (!lines) bad.push(`${k[1]}（${k[2]} 行）文件不存在`);
       else if (lines.length !== +k[2]) bad.push(`${k[1]} 实测 ${lines.length} 行，文档写的是 ${k[2]}`);
     }
-    return { refs, bad, cont, unaddressed: orphans.length };
+    return { refs, bad, cont, odd, bares, binds, unaddressed: orphans.length };
   };
 
   // 文档清单从目录里现数，不手抄——手抄的清单会让这条腿自己缩样。
@@ -602,6 +613,9 @@ for (const r of ledger) {
   let drefs = 0;
   let dcont = 0;
   let dunaddr = 0;
+  let dodd = 0;
+  const dbares = [];
+  const dbinds = [];
   const dbad = [];
   let dtext = '';
   for (const f of docFiles) {
@@ -611,6 +625,9 @@ for (const r of ledger) {
     drefs += a.refs.length;
     dcont += a.cont;
     dunaddr += a.unaddressed;
+    dodd += a.odd.length;
+    for (const b of a.bares) dbares.push(Object.assign({ doc: f }, b));
+    for (const b of a.binds) dbinds.push(Object.assign({ doc: f }, b));
     for (const b of a.bad) dbad.push(`${f} · ${b}`);
   }
   ok(dbad.length === 0, 'D13 文档里每一条 文件:行号 与每一处「N 行」都指到实处',
@@ -622,8 +639,36 @@ for (const r of ledger) {
     'D13 文档里每一处「解析 N 条」都等于这条腿自己数到的（删掉这个数字同样算红）',
     `闸数到 ${drefs} · 文档写了 ${dClaims.length} 处：${[...new Set(dClaims)].join('/')}`);
 
-  ok(dcont >= 1 && dcont < drefs, 'D13 三份文档里确有续引在同句内借到了出处（一条也没有就是这条规则在空转）',
+  ok(dcont >= 15 && dcont < drefs, 'D13 三份文档里确有续引在同句内借到了出处（少于 15 条就是这一类引用改了写法、借的规则在空转）',
     `解析 ${drefs} 条 · 续引借到出处 ${dcont} 条`);
+
+  // ---- 反空转：锚点那一格在**仓里的文档**上到底指认到几处，也得有数可钉 ----
+  // 九把假引用与七组阳性对照钉的是解析器的牙，钉不住"三份文档里一处指认也没解析到"：
+  // 贴法一改（比如把「`path:NN` 的 `NAME`」写成别的形状），锚点那一格就在真文档上空跑而全绿。
+  // 阈值取实测之下、但远高于 0——"一条也没解析到"必须是红。
+  ok(dbinds.length >= 20, 'D13e 文档里的指认解析到 20 处以上（少于 20 处说明贴法改了，锚点那一格在真文档上空跑）',
+    `${dbinds.length} 处指认 · 落在 ${new Set(dbinds.map(r => `${r.path}:${r.from}`)).size} 个不同落点`);
+
+  // ---- 异形续引：BARE 与 CITE 都不认、于是没有任何一条腿为它开文件的那几格 ----
+  // `:37/:64`、`:48,:59` 这种写法比"借不到出处"更糟：后者至少计入「无法定址」并被文档钉住，
+  // 前者连计数都不进，插删一行就集体漂走而闸一声不响。本轮清出来两处，改成带路径的完整引用。
+  ok(dodd === 0, 'D13b 没有"看着像续引却谁都解析不到"的光杆行号（异形写法必须改成带路径的引用）',
+    dodd ? `异形 ${dodd} 格没被 BARE/CITE 认下` : `${dcont} 条续引全部走得了借出处的路`);
+  const cOdd = auditDoc('`js/main.js:1`、`:2/:3`');
+  ok(cOdd.odd.length === 1 && cOdd.refs.length === 1, 'D13b 的控制：异形续引必须被点名，解析器不许对它一声不响',
+    `odd=${cOdd.odd.length} refs=${cOdd.refs.length}`);
+
+  // ---- 两把运行内的自刀：拿文档里真解析到的第一条，而不是内存里造的那九把 ----
+  // 自刀落在真数据上才证明这两格在**本仓的文档**上跑得动：借到出处的第一条续引推到文件之外，
+  // 必须报回被借那个文件的越界；第一条指认换成仓里不可能存在的名字，必须报回未命中。
+  const k21 = dbares.length ? auditDoc('`' + dbares[0].path + ':' + dbares[0].from + '`、`:999999`').bad : [];
+  ok(dbares.length > 0 && k21.some(b => b.includes('越界') && b.includes(dbares[0].path)),
+    'D13c 自刀：把文档里第一条借到出处的续引推到 999999 行，必须为它报回被借文件的越界',
+    dbares.length ? `第一条 ${dbares[0].path}:${dbares[0].from} · 刀红在 ${k21.join(' | ') || '（一处都没红）'}` : '解析不到任何续引');
+  const k22 = dbinds.length ? auditDoc('`' + dbinds[0].path + ':' + dbinds[0].from + '` 的 `zzNoSuchIdentifierzz`').bad : [];
+  ok(dbinds.length > 0 && k22.some(b => b.includes('zzNoSuchIdentifierzz')),
+    'D13d 自刀：把文档里第一条指认的名字换成仓里不存在的标识符，必须为它报回未命中',
+    dbinds.length ? `第一条 ${dbinds[0].doc} 的 ${dbinds[0].path}:${dbinds[0].from} 指认 ${dbinds[0].anchor} · 刀红在 ${k22.join(' | ') || '（一处都没红）'}` : '解析不到任何指认');
 
   // 借不到出处的那些不当错误、也不静默跳过：数出来写进页面，再由这一条钉住。
   // 新增一条定不了址的引用会把闸打红，而不是让覆盖面悄悄缩水。
