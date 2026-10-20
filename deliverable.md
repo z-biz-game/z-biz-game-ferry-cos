@@ -74,7 +74,7 @@ node 95 条 / 浏览器 116 条、fail 0（2026-10-02 重跑口径），输出�
 
 | 文件 | 作用 | 由谁验证 |
 |---|---|---|
-| `server.cjs` | 零依赖静态服务器，默认端口 **5180**（`:48,:59`；`npm run dev` 用 5190） | 本次只有语法门禁 `npm run check`。运行时门禁 `tools/verify.sh:41,68-73`（起它并轮 web 根目录**内容**）本次实跑通过（`opened http://127.0.0.1:5188/` + `boot lot: shoal-01`，§7.4） |
+| `server.cjs` | 零依赖静态服务器，默认端口 **5180**（`server.cjs:61,72`；`npm run dev` 用 5190） | 本次只有语法门禁 `npm run check`。运行时门禁 `tools/verify.sh:41,68-73`（起它并轮 web 根目录**内容**）本次实跑通过（`opened http://127.0.0.1:5188/` + `boot lot: shoal-01`，§7.4） |
 | `electron/main.cjs` | 桌面壳，复用 `server.cjs` 且 `port: 0`（`:7-8`） | **只有语法门禁**。未真实启动过（仓内不装 electron），§6-5 |
 
 ### tools/ 与 test/
