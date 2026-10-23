@@ -309,7 +309,7 @@ node -e 'import("./js/core/library.js").then((L)=>{const s=L.stats();for(const t
 5. **Electron 壳从未真实启动**。只有 `npm run check` 里的 `node --check electron/main.cjs`；仓内不装 electron。
    `electron/main.cjs:7-8` 确实复用 `server.cjs` 且 `port: 0`（契约要求），但运行性未验证。
 6. **移动端未真机验证**。`css/game.css:43` 有 `touch-action: none`、`:141` 有 ≤820px 断点，
-   台架现在三个通道都派发过：`@pointer` = `INPUT_LEGS` 三条腿（mouse 走 `Input.dispatchMouseEvent`、touch 走 `Input.dispatchTouchEvent`、keys 走 `Input.dispatchKeyEvent`，`tools/playtest.mjs:683`），本次实跑 64 条 fail 0。
+   台架现在三个通道都派发过：`@pointer` = 三条腿（`tools/playtest.mjs:683` 的 `INPUT_LEGS`：mouse 走 `Input.dispatchMouseEvent`、touch 走 `Input.dispatchTouchEvent`、keys 走 `Input.dispatchKeyEvent`），本次实跑 64 条 fail 0。
 7. **（已修）代码注释里的生成器旧数字**曾与实测不符（0.4% / 46% / 14 个不同题面），本次已按 §3.3/§3.4
    的实测改写 `js/core/make.js` 与 `tools/bake.mjs` 的注释，见改动表 #7。仍成立的一条：
    `js/core/make.js` 里 `opCap` 那句 "measured 0 of 342 scatter samples solvable"（`'ferry'` 容量 1 为什么

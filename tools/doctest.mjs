@@ -649,6 +649,55 @@ for (const r of ledger) {
   ok(dbinds.length >= 20, 'D13e 文档里的指认解析到 20 处以上（少于 20 处说明贴法改了，锚点那一格在真文档上空跑）',
     `${dbinds.length} 处指认 · 落在 ${new Set(dbinds.map(r => `${r.path}:${r.from}`)).size} 个不同落点`);
 
+  // ---- D13n 逗号式：这一形不挂锚点，可它引的那几行也不能是隔壁那段代码 ------------------------
+  // `` `NAME`，`file:NN` `` 的间隔是纯标点，上面那格现推指认时不认它，于是它整族只过范围检查。
+  // 口径照 skyscraper 的 D10n（同一族缺陷在两台载体上要有同一把尺），四条例外都是**内容判据**不是形状：
+  // ③ 引用后面紧跟「 的 `X`」——那条引用已绑给 X，前面的名字只是行文提及；
+  // ④ 名字自己已经挂在句中更早的一条引用上（`` `path:NN` 的 `A`、`path:MM` ``）；
+  // ⑤ 引用后面用别的动词自带了它的名字（`` `path` import `X` ``、`` `path`（`X`） ``），判据是后面那个
+  //    span 的尾巴真的落在该引用的窗口里；
+  // 名字取点号尾巴（`Input.dispatchMouseEvent` 那一行写的是 `dispatchMouseEvent`），
+  // 逗号后的 `` 、`:NN` `` 续引并进同一次指认、任一段命中即过。自带一把指错行的刀。
+  {
+    const idRe = /^[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*$/;
+    const CONT = /^(?:、|，)\s*`(?:[\w./-]+\.(?:js|mjs|cjs|sh|json|html|yml|css))?:([0-9]+)(?:-([0-9]+))?`/;
+    const inWindow = (src, tok, wins) => !!src && wins.some(([a, b]) =>
+      src.slice(Math.max(0, a - 1), b + 2).join('\n').split(/[^A-Za-z0-9_$]+/).includes(tok));
+    const commaMiss = (text) => {
+      const bad = [];
+      let n = 0;
+      for (const m of text.matchAll(/`([^`\n]+)`[，、]`((?:[\w./-]+\.(?:js|mjs|cjs|sh|json|html|yml|css)):(\d+)(?:-(\d+))?)`/g)) {
+        const head = m[1].split('(')[0].trim();
+        const tok = (idRe.test(head) ? head : '').split('.').pop();
+        if (!tok) continue;
+        const ahead = text.slice(m.index + m[0].length, m.index + m[0].length + 40);
+        if (/^[ \t]*的[ \t]*`/.test(ahead)) continue;
+        if (/`[\w./@+-]+:[\d,-]+`\s*的[ \t]*$/.test(text.slice(Math.max(0, m.index - 34), m.index))) continue;
+        const wins = [[+m[3], +(m[4] || m[3])]];
+        let tail = ahead;
+        for (;;) {
+          const c = CONT.exec(tail);
+          if (!c) break;
+          wins.push([+c[1], +(c[2] || c[1])]);
+          tail = tail.slice(c[0].length);
+        }
+        const src = linesOf(m[2].replace(/:\d+(?:-\d+)?$/, ''));
+        const nxt = /^[ \t]*(?:的|import|（|\()[ \t]*`([^`\n]+)`/.exec(ahead);
+        if (nxt && inWindow(src, nxt[1].split('(')[0].trim().split('.').pop(), wins)) continue;
+        n++;
+        if (!inWindow(src, tok, wins)) bad.push(`${tok}，${m[2]}（这几行里一个都没有：${wins.map(([a, b]) => a + (b !== a ? '-' + b : '')).join('/')}）`);
+      }
+      return { bad, n };
+    };
+    const here = commaMiss(DOCS);
+    const knife = commaMiss('举例：`FERRY_LEGS_NOT_HERE`，`tools/playtest.mjs:683`');
+    ok(here.bad.length === 0 && knife.bad.length === 1 && here.n >= 1,
+      `D13n 逗号式引用（现推指认不认那一形）里那个名字得落在它自己那组行号中的一处（本轮 ${here.n} 处）；这一格自带一把指错行的刀`,
+      here.bad.length ? `漂 ${here.bad.length} 处：${here.bad.slice(0, 3).join(' | ')}`
+        : (knife.bad.length === 1 ? `刀红在：${knife.bad[0]}` : '刀没红：这一格是摆设')
+          + ` · 真文档 ${here.n} 处全过` + (here.n >= 1 ? '' : '（一处都没有：文法被改了，这一格在空转）'));
+  }
+
   // ---- 异形续引：BARE 与 CITE 都不认、于是没有任何一条腿为它开文件的那几格 ----
   // `:37/:64`、`:48,:59` 这种写法比"借不到出处"更糟：后者至少计入「无法定址」并被文档钉住，
   // 前者连计数都不进，插删一行就集体漂走而闸一声不响。本轮清出来两处，改成带路径的完整引用。
