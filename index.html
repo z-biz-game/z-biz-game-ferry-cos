@@ -2,10 +2,10 @@
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><meta name="twitter:card" content="summary">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#0b1016">
-<meta name="description" content="迷津渡：把所有人渡到对岸。每一关的最少单程数都是 2^(n+1) 状态图上的广度优先搜索量出来的，船的两种口径（艄公船 / 自由船）都能改变答案。"><meta property="og:title" content="迷津渡 · FERRY"><meta property="og:description" content="迷津渡：把所有人渡到对岸。每一关的最少单程数都是 2^(n+1) 状态图上的广度优先搜索量出来的，船的两种口径（艄公船 / 自由船）都能改变答案。"><meta property="og:image" content="https://z-biz-game.github.io/z-biz-game-ferry-cos/icons/icon-512.png"><meta name="twitter:image" content="https://z-biz-game.github.io/z-biz-game-ferry-cos/icons/icon-512.png">
-<link rel="icon" href="data:,">
+<meta name="color-scheme" content="dark">
+<meta name="description" content="迷津渡：把所有人渡到对岸。每一关的最少单程数都是 2^(n+1) 状态图上的广度优先搜索量出来的，船的两种口径（艄公船 / 自由船）都能改变答案。">
 <title>迷津渡 · FERRY</title>
 <!-- 图标全部是仓内真 PNG（assets/gen/make_art.py 生成），不是 data: 占位，也不是 SVG 冒充。 -->
 <link rel="icon" type="image/png" sizes="48x48" href="icons/favicon-48.png">
@@ -20,17 +20,17 @@
 <meta property="og:type" content="website">
 <meta property="og:title" content="迷津渡 FERRY · 难度是被量出来的">
 <meta property="og:description" content="2^(n+1) 状态图上的分层 BFS 给出每一渡的最少单程；艄公船与自由船两种口径会改变答案。">
-<meta property="og:image" content="icons/og-cover.png">
+<!-- canonical / og:url / og:image / twitter:image 一律写部署后的绝对 URL：社交爬虫不跑 JS，
+     相对路径等于社交卡没有图。域名走农场统一的 github.io/<repo>/ 形态（与 pages.yml 同源）。
+     这句注释里不写完整 URL：产物自洽闸按字节扫 http(s)，散文里的地址也会被当成远程资源。 -->
+<link rel="canonical" href="https://z-biz-game.github.io/z-biz-game-ferry-cos/">
+<meta property="og:url" content="https://z-biz-game.github.io/z-biz-game-ferry-cos/">
+<meta property="og:image" content="https://z-biz-game.github.io/z-biz-game-ferry-cos/icons/og-cover.png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:image" content="icons/og-cover.png">
+<meta name="twitter:image" content="https://z-biz-game.github.io/z-biz-game-ferry-cos/icons/og-cover.png">
 <link rel="stylesheet" href="css/game.css">
-
-  <link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
-  <link rel="icon" type="image/png" sizes="16x16" href="icons/favicon-16.png">
-  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
-  <link rel="manifest" href="manifest.webmanifest">
 </head>
 <body>
 <header class="topbar">
@@ -39,7 +39,6 @@
     <button type="button" data-mode="campaign">战役</button>
     <button type="button" data-mode="daily">每日</button>
     <button type="button" data-mode="random">随渡</button>
-      <button type="button" id="btn-fullscreen" aria-pressed="false" title="全屏 (F)">全屏</button>
   </nav>
   <nav class="hud" aria-label="机身控件">
     <button type="button" id="help" aria-haspopup="dialog" title="玩法说明（H 或 ?）">玩法</button>
@@ -121,6 +120,10 @@
 
 <p class="toast" id="toast" hidden></p>
 <script type="module" src="js/main.js"></script>
-  <script src="js/sw-register.js"></script>
+<!-- 离线壳的注册不在这里内联：单独一份 js/sw-register.js（并线另一侧独有的能力）。
+     理由不是洁癖，是覆盖：部署集闸的引用走查从 index.html 的 href/src 出发，凡解析出来是 .js
+     的就当一站再扫一遍 —— 注册脚本作为独立一站，"sw.js 在不在产物里"才会被真的量到。
+     内联在 <script> 块里的注册语句走查读不到，于是 sw.js 掉了也没有一条断言会红。 -->
+<script src="js/sw-register.js"></script>
 </body>
 </html>

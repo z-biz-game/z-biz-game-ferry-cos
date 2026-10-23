@@ -126,15 +126,11 @@ export function createView(canvas, hooks = {}) {
   let geo = null; // last layout, in canvas-local px: what every hit test and the harness read
   let carry = null; // { id, x, y, moved, aboard }
   let haul = null; // boat being dragged: { x0, dx, moved }
-  let glide = null; // { from, to, cargo, until }
-  let shake = null; // { ids, boat, until }
-  let flare = null; // { roles, bank, until, why }
-  // 减弱动效闸门。shake 的位移是 x += Math.sin(now / 22) * 4 * (...)：一段纯装饰的来回摆动。
-  // 减弱动效下**只去掉位移，不去掉 shake 本身**——shake 身上还挂着 ids，
-  // 它是"刚才被拒的是哪几个子"这条信息唯一的载体，连它一起删掉，玩家就收不到任何反馈了。
-  // 于是：形状/高亮照旧，位移恒为 0；信息留住，晃动没有。
-  let reduceMotion = false;
-  let mark = null; // { cargo, until } — the hint's "load these"
+  let glide = null; // { from, to, cargo, t, dur }
+  let shake = null; // { ids, boat, t, dur }
+  let flare = null; // { roles, bank, why, t, dur }
+  let mark = null; // { cargo, t, dur } — the hint's "load these"
+  let particles = []; // { x, y, vx, vy, t, dur, r } — wake behind a travelling hull
   let raf = 0;
   let paused = false;
   let lastTs = 0;
@@ -149,11 +145,16 @@ export function createView(canvas, hooks = {}) {
   const patterns = { water: null, sand: null };
   const reduceMq = motionQuery();
   let reducedMotion = !!(reduceMq && reduceMq.matches);
+  // 减弱动效只有一个状态源：reducedMotion。系统偏好由下面这个监听器写，
+  // 外部（window.ferry.setReduceMotion）也写同一枚 —— 两边写两个变量就会各说各话。
+  const goStill = () => {
+    if (reducedMotion) { glide = null; shake = null; particles = []; } // title art goes still
+    draw();
+  };
   if (reduceMq) {
     const onRM = (ev) => {
       reducedMotion = !!(ev && ev.matches);
-      if (reducedMotion) { glide = null; shake = null; particles = []; } // title art goes still
-      draw();
+      goStill();
     };
     if (reduceMq.addEventListener) reduceMq.addEventListener('change', onRM);
     else if (reduceMq.addListener) reduceMq.addListener(onRM);
@@ -338,23 +339,13 @@ export function createView(canvas, hooks = {}) {
     return { x: bb.x, y: bb.y, w: bb.w, h: bb.h };
   }
 
-  // The cosmetic glide is over the instant `busy()` says so; the animation loop only comes along
-  // on the next frame to drop the object. Reading the raw `glide` where a *position* is asked for
-  // would keep publishing "this role is still riding the hull" for up to a frame after the counter
-  // reported the landing, and a caller that waited on `busy` (the harness does exactly that) would
-  // then press a point the next frame no longer owns. Positions use the live view of it.
-  function glideNow() {
-    return glide && performance.now() < glide.until ? glide : null;
-  }
-
   function roleAt(id) {
     const g = geo;
     const seatR = (bb) => Math.max(8, Math.min(g.pitch * 0.42, ((bb.w - 22) / Math.max(1, g.comp.capacity)) * 0.46));
-    const gl = glideNow();
-    if (gl && gl.cargo.indexOf(id) >= 0) {
+    if (glide && glide.cargo.indexOf(id) >= 0) {
       // Still riding: pinned to the boat until the cosmetic glide ends.
       const bb = boatBox();
-      const k = gl.cargo.indexOf(id);
+      const k = glide.cargo.indexOf(id);
       const slot = (bb.w - 22) / Math.max(1, g.comp.capacity);
       return {
         x: Math.round(bb.x + 11 + slot * (k + 0.5)),
@@ -493,9 +484,12 @@ export function createView(canvas, hooks = {}) {
     const g = geo;
     const deck = bb.y + g.boatH * 0.52;
     ctx.save();
-    if (shake && shake.boat && now < shake.until && !reduceMotion) {
-      const k = (shake.until - now) / SHAKE_MS;
-      ctx.translate(Math.sin(now / 24) * 5 * k, 0);
+    // 减弱动效下**只去掉位移，不去掉 shake 本身**：shake 身上挂着 ids，
+    // 它是"刚才被拒的是哪几个子"这条信息唯一的载体，连它一起删掉，玩家就收不到任何反馈了。
+    // 于是：形状/高亮照旧，位移恒为 0；信息留住，晃动没有。（并线另一侧独有的能力，并进来。）
+    if (shake && shake.boat && !reducedMotion) {
+      const k = 1 - shake.t / shake.dur;
+      ctx.translate(Math.sin(animClock * 42) * 5 * k, 0);
     }
     if (glide && !reducedMotion) {
       // Wake behind the hull while it travels.
@@ -581,8 +575,9 @@ export function createView(canvas, hooks = {}) {
     let y = pos.y;
     let alpha = 1;
     if (carry && carry.id === id) return; // drawn last, under the finger
-    if (shake && shake.ids.indexOf(id) >= 0 && now < shake.until && !reduceMotion) {
-      x += Math.sin(now / 22) * 4 * ((shake.until - now) / SHAKE_MS);
+    // 同上：减弱动效下去掉的是位移，shake 的 ids（信息）留着。
+    if (shake && shake.ids.indexOf(id) >= 0 && !reducedMotion) {
+      x += Math.sin(animClock * 46) * 4 * (1 - shake.t / shake.dur);
     }
     if (pos.bank !== undefined && pos.bank !== game.bank) alpha = 0.45; // out of reach, same rule
     if (glide && glide.cargo.indexOf(id) >= 0) alpha = 1;
@@ -941,8 +936,6 @@ export function createView(canvas, hooks = {}) {
     },
     measure,
     redraw: draw,
-    setReduceMotion(v) { reduceMotion = !!v; if (reduceMotion) draw(); return reduceMotion; },
-    isReducedMotion: () => reduceMotion,
     busy,
 
     // A successful crossing: remember where it came from so the hull can travel and the crew can
@@ -1028,6 +1021,11 @@ export function createView(canvas, hooks = {}) {
     },
 
     reduceMotion() { return reducedMotion; },
+    // 并线另一侧独有的接口（并进来）：外部把「减弱动效」这一枚状态写进视图。
+    // 写的是**同一个** reducedMotion —— 系统偏好由本文件的监听器写，外部由这里写，
+    // 两边不另开一个变量，否则 HUD 拨了开关、动画却照旧摇。
+    setReduceMotion(v) { reducedMotion = !!v; goStill(); return reducedMotion; },
+    isReducedMotion() { return reducedMotion; },
 
     // ---- what an automated finger presses (see tools/playtest.mjs @pointer) ----
     // Client-space centre of a role wherever it stands — bank, boat, or riding a glide.
@@ -1039,7 +1037,7 @@ export function createView(canvas, hooks = {}) {
         ...p,
         r: Math.round(pos.r || Math.max(10, geo.pitch * 0.42)),
         aboard: game.boat.indexOf(id) >= 0,
-        riding: pos.riding === true, // roleAt() already resolved the glide against the clock
+        riding: !!(glide && glide.cargo.indexOf(id) >= 0),
         bank: pos.bank === undefined ? game.bank : pos.bank,
       };
     },

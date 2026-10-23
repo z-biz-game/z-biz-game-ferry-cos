@@ -469,12 +469,12 @@ for (const r of ledger) {
 // D1..D12 钉的是「文档写的数 == 代码算出的数」；这一组钉另一半：文档说"这个符号坐在第 N 行"，
 // 被指的那几行里就得真的有它。只查越界抓不住"落在隔壁语句上"的漂移——本轮清出来的那些全都还在界内。
 // 锚点三个方向都认：`name`（`path:NN`）、`path:NN`（`name`）与 `path:NN` 的 `name`。
-// 第二种是这三份文档里最常见的注解写法，只认第一种会把 `js/main.js:474`（`window.ferry`）这类正确引用判红；
+// 第二种是这三份文档里最常见的注解写法，只认第一种会把 `js/main.js:603`（`window.ferry`）这类正确引用判红；
 // 第三种「……的 `符号`」同样是指认，漏了它这二十来条就只剩越界检查，行号漂一格照样绿。
 {
   const PATH_SRC = '[\\w./-]+?\\.[A-Za-z][A-Za-z0-9]{0,11}'; // 后缀不许写死：写死成某一族的语言时，本腿在那种仓里是哑的，而「0 条引用」读起来和「全核过」一模一样
   const CITE = new RegExp('^(' + PATH_SRC + '):([0-9]+(?:[,-][0-9]+)*)$');
-  // 续引：完整引用后面只写行号，`js/main.js:48-55`（`parseHash`）、`stars`（`:143`）。deliverable 里
+  // 续引：完整引用后面只写行号，`js/main.js:53-60`（`parseHash`）、`stars`（`:148`）。deliverable 里
   // 这种写法占了它引用的一大半，此前这条腿一条也没读过——它报"零失效"，其实只看了文档的一部分。
   // 借规则：只向**同一句里最近的那条完整引用**借出处。句号、空行、新标题都会截断这次借。
   // 正文里提到一个文件名不构成出处：`js/main.js` 后面跟 `（`:48-55`）` 借不到，宁可算进「无法定址」。
@@ -680,20 +680,20 @@ for (const r of ledger) {
   // 续引的七把控制腿，全在内存里、不碰仓里的文档：
   // 借到 / 句尾墙 / 软换行仍算同一句 / 空行与新标题截断 / 借来的路径要喂进边界检查 /
   // 正文里提到的文件名不构成出处 / 同一句改写成完整引用就读得回来。
-  const cG = auditDoc('`js/main.js:48-55`（`parseHash`）、`stars`（`:143`）');
+  const cG = auditDoc('`js/main.js:53-60`（`parseHash`）、`stars`（`:148`）');
   ok(cG.refs.length === 2 && cG.cont === 1 && cG.unaddressed === 0 && cG.bad.length === 0 &&
     cG.refs.every((r) => r.path === 'js/main.js'),
     'D13 续引在同句内借到出处，并带上自己那格的指认', `refs=${cG.refs.length} 借到=${cG.cont} 借不到=${cG.unaddressed} 红=${cG.bad.join(' | ') || '无'}`);
-  const cW = auditDoc('`js/main.js:48-55`（`parseHash`）。\n`stars`（`:143`）');
+  const cW = auditDoc('`js/main.js:53-60`（`parseHash`）。\n`stars`（`:148`）');
   ok(cW.refs.length === 1 && cW.unaddressed === 1, 'D13 句号把借的窗口关上：下一句的续引不许挂到上一句的出处上',
     `refs=${cW.refs.length} 借不到=${cW.unaddressed}`);
-  const cP = auditDoc('`js/main.js:48-55`（`parseHash`）、\n`stars`（`:143`）');
+  const cP = auditDoc('`js/main.js:53-60`（`parseHash`）、\n`stars`（`:148`）');
   ok(cP.refs.length === 2 && cP.unaddressed === 0, 'D13 软换行不算换句：同一句折行后续引照样借得到',
     `refs=${cP.refs.length} 借不到=${cP.unaddressed}`);
-  const cH = auditDoc('`js/main.js:48-55`（`parseHash`）\n\n## 续\n`stars`（`:143`）');
+  const cH = auditDoc('`js/main.js:53-60`（`parseHash`）\n\n## 续\n`stars`（`:148`）');
   ok(cH.refs.length === 1 && cH.unaddressed === 1, 'D13 空行与新标题同样截断这次借',
     `refs=${cH.refs.length} 借不到=${cH.unaddressed}`);
-  const cB = auditDoc('`js/main.js:48-55`（`parseHash`）、`stars`（`:99999`）');
+  const cB = auditDoc('`js/main.js:53-60`（`parseHash`）、`stars`（`:99999`）');
   ok(cB.bad.length === 1 && cB.bad[0].includes('js/main.js') && cB.bad[0].includes('越界'),
     'D13 借来的路径喂进边界检查：续引写一个越界的行号必须红，并点名被借的那个文件', cB.bad.join(' | ') || '（没红）');
   const cF = auditDoc('全部样式在 `css/game.css`，第 1 行见 `:1`');
@@ -716,12 +716,12 @@ for (const r of ledger) {
   const dfake = auditDoc('出处 `js/nope.js:1`、`js/view.js:99999`、`parseHash` 在 `js/view.js:1`、`package.json`（999 行）、`js/view.js:1` 的 `getContext`、`js/view.js:1`（`getContext`）、`js/view.js:1`（`Math.max(lo, Math.min(hi, v))`）' +
     (blankAt ? '、`js/view.js:' + blankAt + '`' : '') + '、`js/core/river.js:34`（`MAX_ROLE`）');
   ok(blankAt > 0 && dfake.bad.length === 9, `D13 九把假引用一把不落（不存在 / 越界 / 后向锚点漂 / 行数错 / 「的」前向漂 / 前向括号漂 / 函数调用形式漂 / 无锚点落在空行第 ${blankAt} 行 / 前缀不算整词）`, dfake.bad.join(' | '));
-  const dgreen = ['`getContext`（`js/view.js:82`）与 `package.json`（' + linesOf('package.json').length + ' 行）',
-    '`js/main.js:474`（`window.ferry`）', '`js/core/library.js:26` 的 `LAWS`',
-    '`js/view.js:53`（`Math.max(lo, Math.min(hi, v))`）', '`js/view.js:52-53`（`js/view.js::clamp`）',
+  const dgreen = ['`getContext`（`js/view.js:119`）与 `package.json`（' + linesOf('package.json').length + ' 行）',
+    '`js/main.js:603`（`window.ferry`）', '`js/core/library.js:26` 的 `LAWS`',
+    '`js/view.js:71`（`Math.max(lo, Math.min(hi, v))`）', '`js/view.js:70-71`（`js/view.js::clamp`）',
     '`js/core/library.js:26`（`LAWS:<档>`）',
     // 带空格的 body 不该被当成名字：这一条在"首词切出来当锚点"的旧写法下必红（那一行没有 npm）。
-    '`js/view.js:52`（`npm run doctest`）'];
+    '`js/view.js:119`（`npm run doctest`）'];
   const dg = dgreen.map((t) => auditDoc(t));
   ok(dg.every((a) => a.bad.length === 0 && a.refs.length === 1),
     'D13 真注解与"不该指认"的 body 在同一个解析器下都判绿（后向 / 前向括号 / 前向「的」 / 函数调用形式 / `path::symbol` / 模板前缀 / 带空格的命令行）',
@@ -729,14 +729,14 @@ for (const r of ledger) {
 
   // 反方向的控制：逗号不是指认，前面那个名字只是列表的上一项。这一把只有在那个名字真的不在
   // 被指的那几行里才算数——`ZZ_NOT_A_NAME` 不在，所以规则一写宽（把标点当指认）就先被它推翻。
-  const dcomma = auditDoc('`ZZ_NOT_A_NAME`，`js/view.js:82`');
+  const dcomma = auditDoc('`ZZ_NOT_A_NAME`，`js/view.js:119`');
   ok(dcomma.bad.length === 0 && dcomma.refs.length === 1,
     'D13 纯标点间隔（`，`）不构成指认：这种写法必须判绿',
     `解析 ${dcomma.refs.length} 条 · ${dcomma.bad.join(' | ') || '绿'}`);
 
-  const dneedle = '`js/main.js:48`（`parseHash`）';
+  const dneedle = '`js/main.js:53`（`parseHash`）';
   const dhits = dtext.split(dneedle).length - 1;
-  const dpoison = auditDoc(dtext.replace(dneedle, '`js/main.js:47`（`parseHash`）'));
+  const dpoison = auditDoc(dtext.replace(dneedle, '`js/main.js:52`（`parseHash`）'));
   ok(dhits === 1 && dpoison.bad.some((b) => b.includes('parseHash')),
     'D13 把文档里一条真引用的行号挪歪一格，这一组必须为它变红',
     `needle 命中 ${dhits} 处 · 红在 ${dpoison.bad.join(' | ') || '（一处都没红）'}`);

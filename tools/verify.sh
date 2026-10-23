@@ -19,7 +19,7 @@ MIN_BROWSER_ROWS=${MIN_BROWSER_ROWS:-38}
 # The logic tier has a floor of its own: `tools/doctest.mjs` compares this number against the
 # assertion counts it measures by actually running every suite, so lowering the floor is a change
 # the documentation gate notices. Suites only ever get added, never silently dropped.
-MIN_LOGIC_ROWS=${MIN_LOGIC_ROWS:-95}
+MIN_LOGIC_ROWS=${MIN_LOGIC_ROWS:-98}
 CHROME=${CHROME_BIN:-}
 if [ -z "$CHROME" ]; then
   for c in "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" \

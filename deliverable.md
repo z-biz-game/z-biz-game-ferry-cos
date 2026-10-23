@@ -18,7 +18,7 @@ md5 `caaf916210af2a3e828c07c52317a303`，共 3 次重跑都是同一串字节（
 "被重新量了一遍、数值没动"，不是被编辑过。
 
 **浏览器层本次真跑了**：`bash tools/verify.sh`（不跳 unit）实跑 `=== ALL GREEN ===`、rc=0，
-node 95 条 / 浏览器 116 条、fail 0（2026-10-02 重跑口径），输出原文在 §7.4，截图两张在 `/tmp/puzzle-brief/shots/`。
+node 98 条 / 浏览器 116 条、fail 0（本次实跑口径），输出原文在 §7.4，截图两张在 `/tmp/puzzle-brief/shots/`。
 没有新增玩法功能，没有新增依赖/素材/网络请求，没有执行任何 git 写操作，没有写进本仓以外的目录
 （`/tmp` 下只有台架自己写的日志与两张证据截图）。
 
@@ -34,12 +34,12 @@ node 95 条 / 浏览器 116 条、fail 0（2026-10-02 重跑口径），输出�
 | 难度的来源（本仓用哪一种证明） | **BFS 证明值**：`par` = `(船在哪岸, 左岸名单)` 这张 `2^(n+1)` 状态图上的**最少单程数**，由分层 BFS 量出；"不可解"只在**前沿耗尽**（`truncated === false`）时成立。独立证据 = 第二个实现（`layerSearch`）+ 人类手写 7 步 + 从序列化产物重解 | `node --test test/anchors.test.mjs`（21 条）、`node --test test/library.test.mjs`（9 条） |
 | 外部锚点 | 经典题面表逐行复现：狼羊菜 7、M&C 1+1/2+2/3+3 自由船 = 1/5/11、4+4/5+5 自由船不可解、M&C 1+1/2+2 艄公船 = 3/7、3+3/4+4 艄公船不可解 | `test/anchors.test.mjs:85-97`；数字见 §3 表 |
 | 关卡 | 24 关（4 档 × 6 关），每关印 `par / routes / states` 三个实测值 | `grep -c '^  {' js/data/lots.js` → `24`；`node tools/bake.mjs` |
-| node 断言 | **95 条，fail 0**（6 个套件） | `node --test test/`（原文见 §5.2） |
+| node 断言 | **98 条，fail 0**（6 个套件） | `node --test test/`（原文见 §5.2） |
 | 浏览器断言 | **116 条，fail 0**（五段：`@boot` 11 / `@play` 11 / `@routes` 17 / `@save` 13 / `@pointer` 64（mouse 35 / touch 18 / keys 11）；门线 `MIN_BROWSER_ROWS=38`） | `bash tools/verify.sh` 本次实跑，原文见 §7.4；console `(none)` |
 | npm 依赖 | `dependencies = {}`、`devDependencies = {}`、无 `node_modules` | `node -e 'const p=require("./package.json");console.log(p.dependencies,p.devDependencies)'`；`ls node_modules` → No such file |
 | 二进制资产 | 0：非文本文件只有 `LICENSE` | `find . -type f ! -name '*.md' ! -name '*.js' ! -name '*.mjs' ! -name '*.cjs' ! -name '*.css' ! -name '*.html' ! -name '*.json' ! -name '*.sh' ! -name '*.yml' ! -name '.gitignore'` |
 | 磁盘文件 | 34 个，源码/样式/脚本 5590 行（本次修完 view/main/playtest 之后重量） | `find . -type f -not -path './.git/*' \| wc -l`；`cat js/*.js js/*/*.js test/*.mjs tools/*.mjs server.cjs electron/main.cjs css/game.css index.html \| wc -l` |
-| 路由 / 测试钩子 | `#/c/<n>`、`#/lot/<id>`、`#/daily`、`#/random/<档>/<token>`；`window.ferry` | `js/main.js:48`（`parseHash`）、`js/main.js:474`（`window.ferry`） |
+| 路由 / 测试钩子 | `#/c/<n>`、`#/lot/<id>`、`#/daily`、`#/random/<档>/<token>`；`window.ferry` | `js/main.js:53`（`parseHash`）、`js/main.js:603`（`window.ferry`） |
 | 未实现清单 | 9 条（含 3 处代码注释里的旧数字与本次实测不符） | 见 §6 |
 
 ---
@@ -54,7 +54,7 @@ node 95 条 / 浏览器 116 条、fail 0（2026-10-02 重跑口径），输出�
 |---|---|---|
 | `index.html` | 壳：顶栏 / `#lot` 画布 / 右侧面板 / 通关卡；`<link rel="icon" href="data:,">`（`:8`） | `js/core/library.js` 与 `test/library.test.mjs`(9) 跑的是数据层，**HTML 本身无 node 门禁**；`tools/verify.sh:69-73` 用 `grep 'id="lot"'` 作为"这个端口服务的是本仓"的就绪判据（本次实跑通过：`boot lot: shoal-01`）。favicon 那条是契约 §2 的家族教训，`@boot`/`@pointer` 全程 console `(none)` |
 | `css/game.css` | 全部样式，单文件（131 行） | **无 node 门禁**。`tools/playtest.mjs:694` 的 `@boot` "the canvas has real pixels, not the 300x150 default" 是它的唯一门禁 —— 本次实跑 `@boot rows: 11 fail: []`（§7.4） |
-| `js/view.js` | canvas 绘制（河/岸/船/角色）+ 三种手势 + `rolePoint/boatPoint/dockPoint/reach` | **无 node 门禁**；由 `@boot`(11) / `@pointer`(64) 覆盖，本次实跑全绿（§7.4）；本次修的三格几何就在 `js/view.js:124-142,483-493,611-623`，理由见改动表 #16/#17/#18。它对 core 的只读关系被 `test/game.test.mjs:266` "the game object borrows the compiled cast instead of mutating it" 从另一侧钉住 |
+| `js/view.js` | canvas 绘制（河/岸/船/角色）+ 三种手势 + `rolePoint/boatPoint/dockPoint/reach` | **无 node 门禁**；由 `@boot`(11) / `@pointer`(64) 覆盖，本次实跑全绿（§7.4）；本次修的三格几何就在 `js/view.js:290-294,733-760,875-903`，理由见改动表 #16/#17/#18。它对 core 的只读关系被 `test/game.test.mjs:266` "the game object borrows the compiled cast instead of mutating it" 从另一侧钉住 |
 | `js/main.js` | 路由、DOM、存档写入、`window.ferry` 钩子 | **无 node 门禁**；由 `@routes`(17) / `@save`(13) / `@pointer`(64) 覆盖，本次实跑全绿（§7.4）。`js/core` 不含 DOM 这一事实由 `grep -rn "window\.\|document\." js/core/` 核查（只命中 `storage.js` 的守卫式访问，见 §3） |
 
 ### js/core/*（纯函数层，`node --test` 直接 import）
@@ -74,7 +74,7 @@ node 95 条 / 浏览器 116 条、fail 0（2026-10-02 重跑口径），输出�
 
 | 文件 | 作用 | 由谁验证 |
 |---|---|---|
-| `server.cjs` | 零依赖静态服务器，默认端口 **5180**（`server.cjs:61,72`；`npm run dev` 用 5190） | 本次只有语法门禁 `npm run check`。运行时门禁 `tools/verify.sh:41,68-73`（起它并轮 web 根目录**内容**）本次实跑通过（`opened http://127.0.0.1:5188/` + `boot lot: shoal-01`，§7.4） |
+| `server.cjs` | 零依赖静态服务器，默认端口 **5180**（`server.cjs:62,73`；`npm run dev` 用 5190） | 本次只有语法门禁 `npm run check`。运行时门禁 `tools/verify.sh:41,68-73`（起它并轮 web 根目录**内容**）本次实跑通过（`opened http://127.0.0.1:5188/` + `boot lot: shoal-01`，§7.4） |
 | `electron/main.cjs` | 桌面壳，复用 `server.cjs` 且 `port: 0`（`:7-8`） | **只有语法门禁**。未真实启动过（仓内不装 electron），§6-5 |
 
 ### tools/ 与 test/
@@ -84,7 +84,7 @@ node 95 条 / 浏览器 116 条、fail 0（2026-10-02 重跑口径），输出�
 | `tools/bake.mjs` | 出题 → **序列化后复验** → 写 `js/data/lots.js`，打印接受率/弃因/直方图 | 本次实跑（在 `/tmp` 副本上），输出见 §4 |
 | `tools/harness.mjs` | 微型框架 `test/ok/eq/run`，node 与浏览器套件同形状 | §7.2 的 6 行 `rows: N fail: M` 全部由它打印；`tools/verify.sh:101-128` 按同一形状解析浏览器段 |
 | `tools/playtest.mjs` | 零依赖 CDP 驱动：`open/nav/eval/shot/logs` + `witness`/`reload` + Node 侧三条真输入腿（`leg mouse|touch|keys`，`@pointer` 是它们的合计） | 本次**实跑**：五段合计 116 条断言、fail 0（§7.4）。语法由 `npm run check` 的 `node --check tools/*.mjs` 覆盖 |
-| `tools/verify.sh` | 一次性验收门（独立 `mktemp -d` profile、`/json/version` 与 web 内容双就绪、`trap cleanup EXIT` 里对 Chrome/服务器/看门狗都 `wait`、花括号计数截 JSON、`SKIP_UNIT=1`、端口占用即 `exit 6`） | 本次**实跑**（不跳 unit），原文见 §7.4：`=== ALL GREEN ===` rc=0。静态一致性核查见 §2 末行：脚本要求的 `id="lot"` 确实在 `index.html:31`，`window.ferry` 确实在 `js/main.js:474`，`MIN_BROWSER_ROWS=38` 与 `SCENARIOS` 的五段名（boot/play/routes/save/pointer）都在 `tools/playtest.mjs` 里存在：`@boot/@play/@routes/@save/@readback` 是 `tools/playtest.mjs:686` 的 `SCENARIOS`，`@pointer` 是 `tools/playtest.mjs:173` 的特判 + `tools/playtest.mjs:683` 的 `INPUT_LEGS`（mouse/touch/keys 三条腿） |
+| `tools/verify.sh` | 一次性验收门（独立 `mktemp -d` profile、`/json/version` 与 web 内容双就绪、`trap cleanup EXIT` 里对 Chrome/服务器/看门狗都 `wait`、花括号计数截 JSON、`SKIP_UNIT=1`、端口占用即 `exit 6`） | 本次**实跑**（不跳 unit），原文见 §7.4：`=== ALL GREEN ===` rc=0。静态一致性核查见 §2 末行：脚本要求的 `id="lot"` 确实在 `index.html:54`，`window.ferry` 确实在 `js/main.js:603`，`MIN_BROWSER_ROWS=38` 与 `SCENARIOS` 的五段名（boot/play/routes/save/pointer）都在 `tools/playtest.mjs` 里存在：`@boot/@play/@routes/@save/@readback` 是 `tools/playtest.mjs:686` 的 `SCENARIOS`，`@pointer` 是 `tools/playtest.mjs:173` 的特判 + `tools/playtest.mjs:683` 的 `INPUT_LEGS`（mouse/touch/keys 三条腿） |
 | `test/fixture.mjs` | 手算题面：`WGC`、`WGC_ROUTE`（人类散文翻译成的七步）、`PAIR`/`PAIR_ROUTE`、`missionaries(n, rule, cap)` | 被 `test/anchors.test.mjs` import；`:141` 断言这七步本身长度 7 且逐条 `cross()` 通过、终点 `mask = 0 / bank = RIGHT`；期望值不从被测代码读 |
 | `test/anchors.test.mjs` (21) | §0 锚点表逐行复现 + `layerSearch` 独立实现 + 前沿耗尽的不可解 + 手写七步 + 教学性拒步 | `node --test test/anchors.test.mjs`（§5.2） |
 | `test/river.test.mjs` (28) | 冲突判定四个时刻、两条口径、`validate` 负例、编码互逆、纯函数性 | 同上 |
@@ -111,7 +111,7 @@ node 95 条 / 浏览器 116 条、fail 0（2026-10-02 重跑口径），输出�
 
 | 声称 | 命令 | 实测 |
 |---|---|---|
-| `js/core/*` 不碰 DOM，`node --test` 才能直接 import | `grep -rn "window\.\|document\." js/core/` | 4 行命中，全在 `js/core/storage.js:30,37,64,122`，且 `:30` 是 `typeof window !== 'undefined'` 守卫 —— 契约 §1 明示的唯一豁免 |
+| `js/core/*` 不碰 DOM，`node --test` 才能直接 import | `grep -rn "window\.\|document\." js/core/` | 4 行命中，全在 `js/core/storage.js:99,106,134,202`，且 `:30` 是 `typeof window !== 'undefined'` 守卫 —— 契约 §1 明示的唯一豁免 |
 |  shipped 代码不 import 生成器 | `grep -rn "core/make" js/main.js js/view.js js/core/library.js` | 空（生成只发生在 `tools/bake.mjs`） |
 | 零依赖 | `node -e` 读 `package.json` | `dependencies {}`、`devDependencies {}` |
 | 无 `node_modules` | `ls node_modules` | `No such file or directory` |
@@ -120,7 +120,7 @@ node 95 条 / 浏览器 116 条、fail 0（2026-10-02 重跑口径），输出�
 | 每条 par 都是奇数（难度带为什么长成 1-3/5-7/9-11/13-15） | `node -e` 打印 `library.js` 的 `ALL.map(l=>l.par)` | `1,1,3,3,3,3,5,5,5,5,7,7,9,9,9,9,11,11,13,13,15,15,15,15`；断言在 `test/make.test.mjs:57` |
 | 全仓没有 `if (n >= 4) return false` 这类特判 | `grep -rn "n >= 4\|n > 3" js/core/`（配合 §5.2 里两条 truncated / 6+6 断言） | 无命中；不可解只由 `solve()` 的前沿耗尽给出 |
 | `hashSeed` 不是教科书 FNV-1a | `node -e 'import("./js/core/rng.js").then(m=>console.log(m.hashSeed("a")))'` | `723832900`（教科书 FNV-1a 是 `3826002220`） |
-| `verify.sh` 内部自洽 | 对读脚本要求与页面/钩子 | 它 grep 的 `id="lot"` 在 `index.html:31`；它轮询的 `window.ferry` 在 `js/main.js:474`、`.state.id` 在 `js/main.js:489`；五段场景名在 `tools/playtest.mjs:686`（`SCENARIOS`）里，`@pointer` 的特判在 `:173`，而 `:683`（`@pointer` = 三条腿）的 `INPUT_LEGS` 是三条通道；`CDP_PORT=9348`/`WEB_PORT=5188` 由脚本 `export` 给 `playtest.mjs`，覆盖后者的 9340/5180 默认值 |
+| `verify.sh` 内部自洽 | 对读脚本要求与页面/钩子 | 它 grep 的 `id="lot"` 在 `index.html:54`；它轮询的 `window.ferry` 在 `js/main.js:603`、`.state.id` 在 `js/main.js:619`；五段场景名在 `tools/playtest.mjs:686`（`SCENARIOS`）里，`@pointer` 的特判在 `:173`，而 `:683`（`@pointer` = 三条腿）的 `INPUT_LEGS` 是三条通道；`CDP_PORT=9348`/`WEB_PORT=5188` 由脚本 `export` 给 `playtest.mjs`，覆盖后者的 9340/5180 默认值 |
 
 ---
 
@@ -265,17 +265,17 @@ node -e 'import("./js/core/library.js").then((L)=>{const s=L.stats();for(const t
 | 7 | **[本次核查新发现，未修]** `js/core/make.js:9-16`、`:238` 与 `tools/bake.mjs:4-9` 的注释印着 "4000 样本 17 个（0.4%）"、"约 46% 随机题面可解"、"60 颗种子 14 个不同题面" | 本次在同一份代码上实测是 **1.14%（40/3521）**、**62.3% 可解**、**36 个不同 signature/60 颗种子**（§3.3、§3.4）。差异来源：那些数字是**加入 lateral 之前**的严格递增版生成器量的。定性结论没变且更强，但注释数字已过期。**本次已改**：`js/core/make.js:8-19` 现在印的是 2 016 探针 / 1.0% / 35.1% 不可解与 `唯一题面` 8/60·36/60；`tools/bake.mjs:3-14` 印的是中位 210 ms / 最慢 2 629 ms（balance）与 339/41 452 = 0.8%、单题最慢 1110-2414 ms（三次实跑的漂移区间），并注明"引用毫秒前先重跑"。重跑命令：`node test/balance.mjs`、`node tools/bake.mjs`、§3.4 那条 | 复现命令与输出就在 §3.4；文档侧的处理写在 `DESIGN.md` §3.3 末段与 §10 第三条 |
 | 8 | **[风险类]** 难度带写成 `1-4 / 5-8 / 9-12 / 13-16` 这种"看着等宽"的区间 | 船从左岸出发、终点要求船停在右岸 ⇒ **每个 par 都是奇数**，偶数那半边格子永远空着。带只能是 `1-3 / 5-7 / 9-11 / 13-15`，并且 `par % 2 === 1` 本身是断言 | `test/make.test.mjs:57`；`js/core/make.js:427-429` 的注释说明"每个 par 都是奇数"这件事是量出来的；§3.2 的直方图只有 `1,3,5,7,9,11,13,15` 八格 |
 | 9 | **[家族教训]** 把"生成包络"与"已发布关卡实际落成的 min/max"当同一个数（Gridlock 抄错过的那一格） | `js/core/make.js:431` 的 `TIERS` 是生成时允许什么；`js/data/lots.js:7` 的 `TIERS_META` 是入库行量出来的 min/max/两种船各几关，由 `tools/bake.mjs:196-219` 现算，UI 印后者 | `test/library.test.mjs` "every band shows both boat laws where the data claims it does"（要求 `parMin === t.min`、`n === t.free + t.ferry`）+ "the four bands do not overlap…" |
-| 10 | **[风险类]** 让 shell 或 view 自己再判一次"这步能不能开船" | 两条船口径的差异必须只有一个出处，否则改一处漏一处，画面会**安静地说谎**。`js/view.js` 只把三种手势翻成一次 `onBoard/onUnboard/onDepart` 请求；拒因文案由 `js/main.js:112` 的 `faultText()` 直接消费 core 返回的 `why`/`conflict` | `test/game.test.mjs:99`（拒步报出**是哪两个角色**）、`:88`（超载抖动不计数）、`:25`（装卸一律不计费）；`js/core/river.js:256`（`cross` 是唯一判定点） |
+| 10 | **[风险类]** 让 shell 或 view 自己再判一次"这步能不能开船" | 两条船口径的差异必须只有一个出处，否则改一处漏一处，画面会**安静地说谎**。`js/view.js` 只把三种手势翻成一次 `onBoard/onUnboard/onDepart` 请求；拒因文案由 `js/main.js:117` 的 `faultText()` 直接消费 core 返回的 `why`/`conflict` | `test/game.test.mjs:99`（拒步报出**是哪两个角色**）、`:88`（超载抖动不计数）、`:25`（装卸一律不计费）；`js/core/river.js:256`（`cross` 是唯一判定点） |
 | 11 | **[本仓真踩过的]** `'free'` 口径下"没有艄公"如果靠"查不到艄公索引"来表达，任何一岸都会因巧合被判无人监管 | 这条差异必须写死：`supervised()` 在非 `'ferry'` 口径下**显式 `return false`**，注释就地说明这条线就是两条口径的分岔 | `js/core/river.js:120-127`；`test/river.test.mjs:35` "under the free law no bank is ever supervised, even the one a 'ferry' cast would call home"、`:107`（moment 3：同一个落地在 `'free'` 下死） |
 | 12 | **[风险类]** 终点只判"左岸空了" | `'free'` 口径下左岸空了并不蕴含船也过去了。`solvedState` 是 `mask === 0 && bank === RIGHT`，两个条件都写出来 | `js/core/river.js:283-286`；`test/river.test.mjs:270` "solvedState wants everyone off the left bank *and* the boat with them" |
 | 13 | **[风险类]** 冲突判定的**时刻**搞混（判船离开前的旧状态 / 判到达岸却免判了离开岸 / 载法与岸上冲突混报） | 实现是：先 `loadingFault`（`'far'/'over'/'ferry'/'empty'`），再对**新状态**的两岸判，跳过被监管的那岸。四个时刻各有正反例 | `test/river.test.mjs:80,89,96,107,121,133`（moment 1-4 与两条补充）；`test/anchors.test.mjs:205`（教学性拒步，`where = 'departure'`、`conflict.roles = [2, 3]`） |
 | 14 | **[家族教训]** 台架导航之后 `sleep()` 等待、或多个仓共用一个 DevTools 端口 | `tools/playtest.mjs:127` `waitShell()` 轮询 shell；`tools/verify.sh` 先轮 `/json/version` **再轮 web 根目录的内容**（`grep 'id="lot"'`，别人家的 index.html 不算就绪），`:115-120` 再轮 boot 关卡 id；`:36-39` 端口被占直接 `exit 6`；`:47-57` 的 `trap cleanup EXIT` 对 Chrome/服务器/看门狗都 `wait` 并 `pgrep` 查残留；结果 JSON 用**花括号计数**截（`:125-152`） | 静态核查见 §2 末行；**运行性本次未验证**（§6-1） |
 | 15 | **[风险类]** 搜索被预算截停时仍然交出一个"不可解"结论 | `solve()` 返回 `truncated` 标记，任何"不可解"声称都以 `truncated === false` 为前提；bake 遇到 truncated 直接 throw（`:129`），`test/library.test.mjs` 对 24 行逐行要求它 | `js/core/solve.js:49-50,73-75`；`test/anchors.test.mjs:127`；`node --test test/library.test.mjs` |
-| 16 | **[本仓真踩过的，本次修]** `js/view.js` 的 `layout()` 把座位宽度定义成"水宽 / 容量"（`slot = max(pitch*0.8, floor((waterW-30)/capacity))`），于是**船体永远等于河宽**：1280×820 窗口下画布 886×610、水带 570、船体 562 ⇒ 两个码头的中心距只有 **2 px** | 这直接制造了 `@pointer` 的第二条失败。规格 §4 的两种开船手势是"点船"**或"拖船到对岸"**，而 `far` 的判据是 `|dx| > 0.45 × 两码头间距` = **0.9 px** ⇒ 任何 1 px 的拖动都算"拖到对岸"；台架要的"拖到 20% 距离"在这种几何下是 `round(2×0.2)` = 0..1 px，于是**半途而废的拉船被结算成靠岸**，`shoal-01` 的 par 恰好是 1 ⇒ 一步就 `done/curtain/busy` 全 true。核心规则从来没错（`depart()` 只在合法载货时计 1 步），错的是几何让"到没到对岸"不可表达。现在座位跟着**角色尺寸**走、船体另外封顶在水宽 60% ⇒ 同窗口下船体 214、行程 350 px；点击判定同时加 `TAP_SLOP = 6`（半途而废与"手指抖一抖的点"必须分得开，两者都不是 0） | `js/view.js:124-131`（seat/boatW 与两个上限）、`:26`（`TAP_SLOP`）、`:631-633`（`far`/`clicked`）；台架 `tools/playtest.mjs:495` 新增前提断言"两码头间距 ≥ 60 px 且 20% 行程既大于点击抖动又小于 `0.45×`"，`:500` 原断言一字未改。跑：`bash tools/verify.sh` 的 `@pointer rows: 64 fail: []`（§7.4 的 2026-10-02 重跑）；因果全文在 `DESIGN.md` §7.1 |
-| 17 | **[本仓真踩过的，本次修]** `layout()` 里右岸的角色网格以**水带**为中心（`bankBox[1] = { x: waterX0, w: waterW }`），于是过了河的人站在航道正中、船体底下（画布 x 443 = 画布中心），彼岸沙地空着 | 这制造了第一条失败。台架取"空白水面"用的是 `(画布中心 x, 12% 高度)` —— 那个点离艄公的圆只有 **8 px**，落在 `max(11, pitch*0.5)` = 23 px 命中半径里 ⇒ `down()` 认成"按在角色上"、`up()` 的 `!wasAboard && !moved` 分支**合法地**把他装上了船：`trips` 没动而 `boat.length` 从 0 变 1，断言判 FAIL 却打印 `{"wBefore":1,"wAfter":1}`（detail 只印了 `trips`，这就是"两边相等却 FAIL"的来历）。**断言的结论是对的**（规格 §4：按空白处不该有任何事），要修的是"那个坐标到底是不是空白"。现在右岸列以右岸沙地为中心（画布 x 799），并且台架在按下之前先用页面自己公布的 `reach()` 自证前提 | `js/view.js:144-161`（`bankBox` 与 `bankRect` 同一条线）、`js/view.js:545`（`hitReach()` 单一出处）、`js/view.js:754`（`reach()`）；`js/main.js:546-555`（钩子暴露 `reach()`）；`tools/playtest.mjs:463` 前提断言 + `:468` 原断言（detail 现在打印 `trips/boat/bank` 三个前后值）。跑：同上 |
-| 18 | **[本仓真踩过的，本次修]** `frame()` 只在动画仍挂着时重绘，补间结束的**那一帧没人画**：河面冻结在"人还在船上"的最后一帧，而旁边面板写着"已在船 0/3" | 画面必须能对上已经提交的状态，否则截图证据与台架读到的 `state` 各说各话（`@pointer` 读的是几何钩子，所以这条一直没被断言抓到）。现在动画集合变空时补画最后一帧 | `js/view.js:483-493`；证据：`/tmp/puzzle-brief/shots/ferry-win.png`（通关态截图，人站在彼岸沙地上而不是船里，§7.4） |
+| 16 | **[本仓真踩过的，本次修]** `js/view.js` 的 `layout()` 把座位宽度定义成"水宽 / 容量"（`slot = max(pitch*0.8, floor((waterW-30)/capacity))`），于是**船体永远等于河宽**：1280×820 窗口下画布 886×610、水带 570、船体 562 ⇒ 两个码头的中心距只有 **2 px** | 这直接制造了 `@pointer` 的第二条失败。规格 §4 的两种开船手势是"点船"**或"拖船到对岸"**，而 `far` 的判据是 `|dx| > 0.45 × 两码头间距` = **0.9 px** ⇒ 任何 1 px 的拖动都算"拖到对岸"；台架要的"拖到 20% 距离"在这种几何下是 `round(2×0.2)` = 0..1 px，于是**半途而废的拉船被结算成靠岸**，`shoal-01` 的 par 恰好是 1 ⇒ 一步就 `done/curtain/busy` 全 true。核心规则从来没错（`depart()` 只在合法载货时计 1 步），错的是几何让"到没到对岸"不可表达。现在座位跟着**角色尺寸**走、船体另外封顶在水宽 60% ⇒ 同窗口下船体 214、行程 350 px；点击判定同时加 `TAP_SLOP = 6`（半途而废与"手指抖一抖的点"必须分得开，两者都不是 0） | `js/view.js:290-294`（seat/boatW 与两个上限）、`:44`（`TAP_SLOP`）、`:895-897`（`far`/`clicked`）；台架 `tools/playtest.mjs:495` 新增前提断言"两码头间距 ≥ 60 px 且 20% 行程既大于点击抖动又小于 `0.45×`"，`:500` 原断言一字未改。跑：`bash tools/verify.sh` 的 `@pointer rows: 64 fail: []`（§7.4 的 2026-10-02 重跑）；因果全文在 `DESIGN.md` §7.1 |
+| 17 | **[本仓真踩过的，本次修]** `layout()` 里右岸的角色网格以**水带**为中心（`bankBox[1] = { x: waterX0, w: waterW }`），于是过了河的人站在航道正中、船体底下（画布 x 443 = 画布中心），彼岸沙地空着 | 这制造了第一条失败。台架取"空白水面"用的是 `(画布中心 x, 12% 高度)` —— 那个点离艄公的圆只有 **8 px**，落在 `max(11, pitch*0.5)` = 23 px 命中半径里 ⇒ `down()` 认成"按在角色上"、`up()` 的 `!wasAboard && !moved` 分支**合法地**把他装上了船：`trips` 没动而 `boat.length` 从 0 变 1，断言判 FAIL 却打印 `{"wBefore":1,"wAfter":1}`（detail 只印了 `trips`，这就是"两边相等却 FAIL"的来历）。**断言的结论是对的**（规格 §4：按空白处不该有任何事），要修的是"那个坐标到底是不是空白"。现在右岸列以右岸沙地为中心（画布 x 799），并且台架在按下之前先用页面自己公布的 `reach()` 自证前提 | `js/view.js:299-316`（`bankBox` 与 `bankRect` 同一条线）、`js/view.js:797`（`hitReach()` 单一出处）、`js/view.js:1075`（`reach()`）；`js/main.js:700`（钩子暴露 `reach()`）；`tools/playtest.mjs:463` 前提断言 + `:468` 原断言（detail 现在打印 `trips/boat/bank` 三个前后值）。跑：同上 |
+| 18 | **[本仓真踩过的，本次修]** `frame()` 只在动画仍挂着时重绘，补间结束的**那一帧没人画**：河面冻结在"人还在船上"的最后一帧，而旁边面板写着"已在船 0/3" | 画面必须能对上已经提交的状态，否则截图证据与台架读到的 `state` 各说各话（`@pointer` 读的是几何钩子，所以这条一直没被断言抓到）。现在动画集合变空时补画最后一帧 | `js/view.js:733-760`；证据：`/tmp/puzzle-brief/shots/ferry-win.png`（通关态截图，人站在彼岸沙地上而不是船里，§7.4） |
 | 19 | **[风险类]** 台架的坐标如果由测试自己算（`b.left + b.width/2` 这类），页面一改布局它就会**因为错误的原因**通过或失败 | 台架要的坐标一律向页面要（`rolePoint/boatPoint/dockPoint/reach`），并且"我要点的这个点什么都没盖住"这句话本身要成为一条断言，而不是一个假设 | `tools/playtest.mjs:463`；`@pointer` 里所有点击坐标都出自 `window.ferry.*Point()` |
-| 20 | **[本仓真踩过的，本次修]** `roleAt()` 用裸 `glide` 决定"谁还在船上"，而 `busy()` 用的是 `performance.now() < glide.until` —— 补间结束后到 rAF 把 `glide` 置空之前有一帧的窗口，两个函数对同一时刻给出矛盾答案 | 台架 `settle()` 等的正是 `busy`，它一 false 就去问 `rolePoint(0)`；如果那一问落在窗口里，拿到的还是"船上的座位"，而下一帧 `down()` 重算时人已经站在岸上 ⇒ 按下点谁也没命中，**装船静默失败**，后面整条路线崩掉（18:56 那一遍就是这个：`{"before":[],"after":[],"trips":2}` + 第三次按船被 `'ferry'` 拒）。位置类查询现在统一走 `glideNow()`，与 `busy()` 同一条判据；绘制路径仍读裸 `glide`（那一帧本来就该画船） | `js/view.js:192-194`（`glideNow()`）、`:201`、`:711`（`rolePoint().riding`）；跑：`bash tools/verify.sh` 连两遍 `@pointer rows: 40 fail: []`（2026-09-27，§7.4 原文），另加 4 次单跑；拆成三条腿之后 2026-10-02 重跑 `@pointer rows: 64 fail: []` |
+| 20 | **[本仓真踩过的，本次修]** `roleAt()`（谁还在船上）与 `busy()`（补间结束了没有）必须读**同一条判据** —— 补间结束后到 rAF 把 `glide` 置空之前有一帧的窗口，两个函数对同一时刻给出矛盾答案（另一侧那一版正是 `performance.now() < glide.until` 与裸 `glide` 各读各的） | 台架 `settle()` 等的正是 `busy`，它一 false 就去问 `rolePoint(0)`；如果那一问落在窗口里，拿到的还是"船上的座位"，而下一帧 `down()` 重算时人已经站在岸上 ⇒ 按下点谁也没命中，**装船静默失败**，后面整条路线崩掉（18:56 那一遍就是这个：`{"before":[],"after":[],"trips":2}` + 第三次按船被 `'ferry'` 拒）。位置类查询与 `busy()` 现在读的是**同一枚 `glide`**（补间状态是 `t/dur` 形状，`busy()` 把它算进去 ⇒ 两者不可能给出矛盾答案）；绘制路径仍读裸 `glide`（那一帧本来就该画船） | `js/view.js:822`（`busy()`）、`:342`（`roleAt()`）、`:1032`（`rolePoint().riding`）；跑：`bash tools/verify.sh` 连两遍 `@pointer rows: 40 fail: []`（2026-09-27，§7.4 原文），另加 4 次单跑；拆成三条腿之后 2026-10-02 重跑 `@pointer rows: 64 fail: []` |
 
 ---
 
@@ -283,7 +283,7 @@ node -e 'import("./js/core/library.js").then((L)=>{const s=L.stats();for(const t
 
 按"缺什么"排序，不是"做完了什么"换种说法。
 
-1. **浏览器层本次跑了，而且是完整的一遍（不跳 unit）**：`bash tools/verify.sh` → node 6 套 95 条 +
+1. **浏览器层本次跑了，而且是完整的一遍（不跳 unit）**：`bash tools/verify.sh` → node 6 套 98 条 +
    浏览器五段 116 条，全部 fail 0，末行 `=== ALL GREEN ===`，原文在 §7.4。跑前 `lsof -nP -i :9348 -i :5188`
    确认端口空闲，跑后 `pgrep -fl remote-debugging-port` 无残留。**唯一一条不干净的地方**：脚本自己的
    收尾检查打印了 `WARNING: 2 chrome process still holds /var/folders/.../tmp.mnVBqRNWGe` ——
@@ -308,7 +308,7 @@ node -e 'import("./js/core/library.js").then((L)=>{const s=L.stats();for(const t
    全仓唯一提到它的是 `README.md` 文件地图里那句"hashSeed（FNV-1a 派生的两轮混合）"与 `DESIGN.md` §5。
 5. **Electron 壳从未真实启动**。只有 `npm run check` 里的 `node --check electron/main.cjs`；仓内不装 electron。
    `electron/main.cjs:7-8` 确实复用 `server.cjs` 且 `port: 0`（契约要求），但运行性未验证。
-6. **移动端未真机验证**。`css/game.css:43` 有 `touch-action: none`、`:119` 有 ≤820px 断点，
+6. **移动端未真机验证**。`css/game.css:43` 有 `touch-action: none`、`:141` 有 ≤820px 断点，
    台架现在三个通道都派发过：`@pointer` = `INPUT_LEGS` 三条腿（mouse 走 `Input.dispatchMouseEvent`、touch 走 `Input.dispatchTouchEvent`、keys 走 `Input.dispatchKeyEvent`，`tools/playtest.mjs:683`），本次实跑 64 条 fail 0。
 7. **（已修）代码注释里的生成器旧数字**曾与实测不符（0.4% / 46% / 14 个不同题面），本次已按 §3.3/§3.4
    的实测改写 `js/core/make.js` 与 `tools/bake.mjs` 的注释，见改动表 #7。仍成立的一条：
@@ -334,8 +334,8 @@ node -e 'import("./js/core/library.js").then((L)=>{const s=L.stats();for(const t
 | §2 手算 fixture + 序列化复证 | 狼羊菜 7 步逐条写出、产物重解复现 par | 达成（`test/fixture.mjs:29`、`test/anchors.test.mjs:141,176`、`test/library.test.mjs:20`） |
 | §3 生成策略与接受率必须打印 | 撒点接受率低就改成"经典题面局部变形 + 复测 par" | 达成（`js/core/make.js:13-20` 记的就是这个决定；`tools/bake.mjs:176-184` 打印接受率与弃因；§3.2/§3.3/§3.4 是本会话实跑） |
 | §3 四档带由实测直方图定、互不重叠 | 附加维度：角色数、船容量与口径、冲突边数 | 达成（§4 表 + `test/library.test.mjs` 不重叠断言）。**"两口径各占一定比例"在迷津档实测为 0**，如实印出（§4） |
-| §4 UI：拖人上船不计数、点船/拖船 = 一次渡河、超载抖动、两种口径各一条断言、教学性拒步高亮两个角色 | — | 代码与台架都在（`js/view.js:594-625`、`tools/playtest.mjs:325-513` mouse 腿 / `:517-592` keys 腿 / `:594-681` touch 腿），**运行性已实测**：`@pointer` 64 条全绿（§7.4）。两种口径各一条（艄公独自过河计 1 单程 / `'free'` 空船被拒且不计步）、超载抖动不计数、教学性拒步报出两个角色、半途而废的拉船不上人（改动表 #16） |
-| §5 node ≥ 38 | — | **95 条，fail 0**（§5.2） |
+| §4 UI：拖人上船不计数、点船/拖船 = 一次渡河、超载抖动、两种口径各一条断言、教学性拒步高亮两个角色 | — | 代码与台架都在（`js/view.js:875-903`、`tools/playtest.mjs:325-513` mouse 腿 / `:517-592` keys 腿 / `:594-681` touch 腿），**运行性已实测**：`@pointer` 64 条全绿（§7.4）。两种口径各一条（艄公独自过河计 1 单程 / `'free'` 空船被拒且不计步）、超载抖动不计数、教学性拒步报出两个角色、半途而废的拉船不上人（改动表 #16） |
+| §5 node ≥ 38 | — | **98 条，fail 0**（§5.2） |
 | §5 browser ≥ 38，含真实输入段 | `@pointer` 的 mouse/touch 两条腿各用真实事件走完一关 par ≤ 7 | 场景走的是 par 3 的 `shoal-03`（mouse `tools/playtest.mjs:336`、touch `:605`），另加 par 3 的 `shoal-04`、par 1 的 `shoal-01/02`；本次实跑 **116 条、fail 0**，其中 `@pointer` 64 条（§7.4） |
 | §7 已知不做 | 波浪/时间流动、手电筒类变体、多船 | 达成（`DESIGN.md` §9）；船容量随关卡变**已实现**（每行 `capacity`） |
 
@@ -379,13 +379,13 @@ rows: 13 fail: 0
 rc=0
 ```
 
-**断言行数 = 21 + 17 + 9 + 7 + 28 + 13 = 95，fail = 0，文件数 = 6，rc = 0。**（验收前又重跑一遍，逐行相同）
+**断言行数 = 21 + 17 + 9 + 7 + 28 + 16 = 98，fail = 0，文件数 = 6，rc = 0。**（验收前又重跑一遍，逐行相同）
 两个口径要说清，别混：`ℹ tests 6` 数的是**文件**（每个套件自跑自 `process.exit`，对 node 的 TAP 层只算一个用例）；
 `rows: N` 才是 `tools/harness.mjs` 里的断言数。聚合命令：
 
 ```
 $ node --test test/ | awk '/^rows:/{a+=$2; b+=$4} END{print "asserts="a" fail="b}'
-asserts=95 fail=0
+asserts=98 fail=0
 ```
 
 ### 7.3 `node tools/bake.mjs`（在 `/tmp` 副本上）与 `node test/balance.mjs`
@@ -399,7 +399,7 @@ asserts=95 fail=0
 已修）→ 19:00 与 19:01 两遍全绿。另有 4 次单独跑 `@pointer`（18:58，修完之后）也是 40/[]。
 
 **2026-10-02 重跑（把 `@pointer` 拆成三条真输入腿之后，同一台机器、同一条命令）**：
-`bash tools/verify.sh`（**不跳 unit**）→ node 六套 95 条 fail 0；`@boot` 11 / `@play` 11 / `@routes` 17 /
+`bash tools/verify.sh`（**不跳 unit**）→ node 六套 98 条 fail 0；`@boot` 11 / `@play` 11 / `@routes` 17 /
 `@save` 13 / `@pointer` **64**（mouse 35 / touch 18 / keys 11）= 浏览器 **116 条、fail 0**，
 console `(none)`，`browser rows counted: 116 (minimum 38)`，末行 `=== ALL GREEN ===`，`GATE_RC=0`。
 单腿另跑：`node tools/playtest.mjs leg keys` 11/[]、`leg touch` 18/[]；
@@ -456,8 +456,8 @@ WARNING: 2 chrome process still holds /var/folders/8r/.../T/tmp.mnVBqRNWGe
   两条原断言一字未改，多出来的是两条**前提**断言（改动表 #16/#17）。
 - 18:56 那一遍暴露的第 20 格是**这次重跑才抓到的**：同一份代码第一遍是绿的。台架的 `settle()` 等的是
   `state.busy`，而 `busy()` 与 `roleAt()` 过去读的是两个不同时钟点的 `glide`，于是"人还在船上"这个
-  假位置会被发布到下一帧。修法是让位置与 `busy()` 共用同一条 `performance.now() >= until` 判据
-  （`js/view.js:192-194`）。**没有**给台架加 sleep 掩盖它，也没有放宽那条断言。
+  假位置会被发布到下一帧。修法是让位置与 `busy()` 共用同一条判据；并线后的实现里这条判据是**同一枚 `glide` 变量**
+  （`js/view.js:822` 的 `busy()` 与 `:342` 的 `roleAt()`），两者不可能再给出矛盾答案。**没有**给台架加 sleep 掩盖它，也没有放宽那条断言。
 
 ### 7.5 截图证据（本次实跑页面，非合成）
 
@@ -490,3 +490,67 @@ WARNING: 2 chrome process still holds /var/folders/8r/.../T/tmp.mnVBqRNWGe
 本仓的单 Chrome 守卫据此拒绝启动（rc=6）；确认两者 PPID 已为 1 且 `lsof` 无 ESTABLISHED 连接后清掉，
 同一轮就跑到 187 行全绿。第二次是审计脚本只认 `rows: N fail: []` 这一种方言，
 对 `rows: N passed: M fail: []` 直接读成 0。断言层从来不是 0。
+
+---
+
+## 8. 并线收口（2026-10-23）
+
+并线提交 `490a8b2`（父 `1caf155` / `70f978b`）把两侧各自做过的精修合到一起；而 `1caf155` 本身
+又是一次「有机并线」（父 `9187ce4` / `489b791`）。两次并线合出一批**整局不可玩**的破坏 ——
+两侧各自自洽，合起来不自洽。
+
+### 8.1 坏在哪（按症状排）
+
+| 症状 | 位置 | 机理 |
+| --- | --- | --- |
+| 第一次画船就炸 | `js/view.js` | 并线把本侧 `let particles = []` 这一行裁掉了，14 处引用全留着 ⇒ 未声明变量，ReferenceError |
+| 一有抖动就炸 | `js/view.js` | 并线接进来的两段读 `shake.until` 与 `SHAKE_MS`，本侧写进去的却是 `shake.t/dur` 与 `SHAKE_S`；`now` 在那两个作用域里压根没有定义 ⇒ ReferenceError |
+| 减弱动效两套状态源 | `js/view.js` | 本侧跟系统偏好的 `reducedMotion` 与另一侧手动的 `reduceMotion` 同时在：HUD 拨开关写的那枚与动画读的那枚不是同一枚 |
+| 按一次 F 键净效果为零 | `js/main.js` | 两份全屏实现同时在（HUD 的 `#fullscreen` 与并线接进来的 `#btn-fullscreen` IIFE），各挂一个 keydown ⇒ 一次按键进一次出一次；两个按钮、三份 `fullscreenchange` 监听 |
+| 页面头混搭 | `index.html` | 两份 og:title / og:description / og:image / twitter:image、两排图标链接、一个 `data:,` 占位；社交卡还被指回 512 图标，canonical / og:url / 1200×630 的 og 卡全丢 |
+| 文档全线失锚 | README / DESIGN / 本文件 | 文档是另一侧写的，行号锚点指着另一侧的代码布局；并线把本侧的代码换了进去 ⇒ 文档腿 14 项红（`D3`/`D3b`/`D3e`/`D3f`/`D3g`/`D4l`/`D6`/`D6s`/`D13`） |
+
+### 8.2 收口办法
+
+- **回到自洽的那一侧**：`js/view.js`、`js/main.js`、`index.html` 全部取回 `9187ce4` 那一版
+  （它自带粒子系统、定步长仿真时钟、盘面美术与全套 HUD）。
+- **另一侧独有的能力并进来**（能力取并集，实现只留一份）：`server.cjs` 的 `MOUNT`
+  （同一台服务器同时答根形态与 `/<repo>/` 前缀形态）、部署集闸 / 文档腿 / 破坏台账 / CI / 文档层、
+  safe-area 与 44px 命中下限（中央分发那一段 CSS）。
+- **一份实现 + 一个状态源**：减弱动效只留一枚 `reducedMotion`（视图自己跟系统偏好），
+  外部 `setReduceMotion` 写的是同一枚；
+  `js/view.js:822`（`busy()`）与 `js/view.js:342`（`roleAt()`）因此不可能给出矛盾答案；全屏只留 HUD 的 `#fullscreen` 一份；SW 注册只留
+  `js/sw-register.js` 一份 —— 注册作为独立一站，部署集闸才量得到 `sw.js` 在不在产物里。
+- **社交卡回到 1200×630 的 og 卡**（绝对 URL），canonical / og:url 一并补上；
+  页面的 `id="lot"` 仍在 `index.html:54`，`window.ferry` 仍在 `js/main.js:603`。
+
+### 8.3 闸的改动（断言一条未改）
+
+| 闸 | 改动 | 理由 |
+| --- | --- | --- |
+| `tools/deploy-set.mjs` | 实数钉 `25/44` → **`28/47`** | 钉的是实数，强度不变：head 恢复成自洽的那一份后 canonical / og:url / 绝对地址的社交卡回到引用面里，引用从 25 条涨到 28 条。R12/R13 两句断言一字未动 |
+| `tools/doctest.mjs` | 闸自己的**样本锚点**跟着当前代码走（`js/view.js:82` → `:119` 等） | 样本要指着真符号；形状与断言一条未改 |
+| `tools/verify.sh` | `MIN_LOGIC_ROWS` 95 → **98** | node 层断言数在并线后从 95 变 98：并线带进来的 `storage` 套件是 16 条，不是 13 条 |
+| 文档侧 | README / DESIGN / 本文件里 **21 处行号锚点**逐条重锚到当前布局；`storage` 13→16、node 合计 95→98、引用条数那一格也跟着走（211 → 213） | 以代码为准（这正是文档腿自己定的规矩） |
+
+### 8.4 读数（本机实测）
+
+| 项 | 结果 |
+| --- | --- |
+| `npm run check` | OK |
+| `npm run unit`（六个套件） | **98 行 / fail: 0**（anchors 21 / game 17 / library 9 / make 7 / river 28 / storage 16） |
+| `npm run doctest`（文档腿） | **392 项 / fail: 0**（十三组 D，每组带反空转断言） |
+| `node tools/sabotage.mjs`（破坏台账） | **八把刀全部红得住并点到了名** + 阴性对照 rc=0 + 副本清干净 |
+| `node tools/deploy-set.mjs` | 28 条引用（含 3 张位图尺寸核对）/ **47 行 / fail: 0** |
+| `node tools/deploy-set-selftest.mjs` | 每一刀都咬、阴性对照不发威，**rc=0** |
+| `bash tools/verify.sh`（根形态，真 headless Chrome） | `@boot 11 · @play 11 · @routes 17 · @save 13 · @pointer 64` = **116 行 / fail: []**，console 干净，`=== ALL GREEN ===` rc=0 |
+| 同一批场景换成 Pages 的 URL 形态（`MOUNT=z-biz-game-ferry-cos`） | **116 行 / fail: []**，`=== ALL GREEN ===` rc=0 |
+| 整局不可玩量具（`cos_load_sweep`） | **LOADED**（并线后是 STUB-GAP：`particles is not defined`） |
+
+### 8.5 留给人的两件事
+
+1. **文档腿 D13 的 213 条引用**：这一轮重锚了 21 处，其余 192 处照旧指在实处。新加的 §8 里也有
+   几处引用，它们同样被 D13 逐条读回 —— 往后动任何一个被指到的文件，记得重跑 `npm run doctest`。
+2. **减弱动效的两个入口**：系统偏好（视图自己跟）与外部 `setReduceMotion`（探针用）写的是同一枚
+   `reducedMotion`。若将来要让玩家手动关动效而不受系统偏好摆布，需要再加一枚"手动关闭"并与系统
+   偏好取或 —— 那是一次真的行为变更，本次没有替组织决定。

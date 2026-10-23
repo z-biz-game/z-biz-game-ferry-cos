@@ -322,7 +322,7 @@ node -e 'import("./js/core/rng.js").then(m=>console.log(m.hashSeed("a")))'   # 7
    `js/core/make.js` 的每一颗生成种子、`#/daily` 的日期、`#/random/<档>/<token>` 的 token 都过它。
    换掉它的同一天，`js/data/lots.js` 必须重新烘焙，并且所有已分享出去的 `#/random/...` 链接会指向另一条河。
 
-前端把算术印在屏幕上正是为了这条能被外部检查：`js/main.js:78` 的 `seedNote` 直接给出
+前端把算术印在屏幕上正是为了这条能被外部检查：`js/main.js:83` 的 `seedNote` 直接给出
 `hashSeed("daily|2026-09-27") = 2210448354 · 2210448354 % 24 = 18`（→ `labyrinth-01`），
 用户在控制台里就能复算。裸 `#/random/<档>` 不写 token 就会每次访问不同，
 所以 `js/main.js:348` 一旦 mint 出 token 就 `location.replace` 写回地址栏（`@routes` 有断言）。
@@ -338,7 +338,7 @@ node -e 'import("./js/core/rng.js").then(m=>console.log(m.hashSeed("a")))'   # 7
 | 外壳 | `js/main.js` | 路由、DOM、存档写入、`window.ferry` | 规则细节（不自己判船能不能开） |
 
 `grep -rn "window\.\|document\." js/core/` 只应该命中 `js/core/storage.js` 的守卫式访问
-（守卫本身是 `js/core/storage.js:29-30` 的 `hasDOM`，它不在 try 里；三处真读写 `js/core/storage.js:37,64,122` 每一处都包在 try/catch 里）。
+（守卫本身是 `js/core/storage.js:98` 的 `hasDOM`，它不在 try 里；三处真读写 `js/core/storage.js:106,134,202` 每一处都包在 try/catch 里）。
 core 里一旦出现 DOM，`node --test` 那一层直接瘫掉 —— 而那一层是本仓全部主张所在。
 
 `js/core/game.js` 把两件事分开，这是 §2 那些判据能落到手指上的前提：
@@ -373,17 +373,17 @@ core 里一旦出现 DOM，`node --test` 那一层直接瘫掉 —— 而那一�
 两处非显然的实现：
 
 - **`TAP_SLOP`**：浏览器在 pointerdown/pointerup 之间常给一两像素抖动，"点船开船"不能因为抖动就变成
-  "什么也没发生"；反过来，一次半途而废的拖船**不许**成行 —— 船回原位、没人上船（`js/view.js:611-623`，
+  "什么也没发生"；反过来，一次半途而废的拖船**不许**成行 —— 船回原位、没人上船（`js/view.js:875-903`，
   `@pointer` 有对应断言：把船拖到 20% 距离不动、拖到对岸恰好计 1 单程并获胜）。
-- **命中半径由页面自己公布**（`reach()`，`js/view.js:754`）。台架要断言"点空白处什么都没发生"，
+- **命中半径由页面自己公布**（`reach()`，`js/view.js:1075`）。台架要断言"点空白处什么都没发生"，
   就必须先证明那个坐标离所有角色的命中盒都够远 —— 否则这条断言会因为**错误的原因**成立
   （那个坐标根本没落进画布）。
 
-被拒的操作画成"船身或角色抖一下 + 相关角色红一下"，计数不动；拒因文案由 `js/main.js:112` 的
+被拒的操作画成"船身或角色抖一下 + 相关角色红一下"，计数不动；拒因文案由 `js/main.js:117` 的
 `faultText()` 从 core 返回的 `why` / `conflict` 生成，shell 不重写第二套判定。
 冲突高亮的是**core 报的那两个角色**（`conflict.roles`），不是视图自己配的。
 
-画布上下文**没有**开 `willReadFrequently`：`getContext` 那一行（`js/view.js:82`）只写了 `'2d'`。理由：像素回读只发生在**台架侧**
+画布上下文**没有**开 `willReadFrequently`：`getContext` 那一行（`js/view.js:119`）只写了 `'2d'`。理由：像素回读只发生在**台架侧**
 （`tools/playtest.mjs:457` 采样 alpha 证明"河真的被画出来了"），shipped 代码不读像素，
 给游戏自己的绘制路径开这个标志是拿性能换一条不会踩门的 warning；
 `tools/verify.sh:173` 的 console 门只拦 `[EXCEPTION]`。这一条与九连环/Gridlock 的做法**不同**，
@@ -409,30 +409,32 @@ pitch 46、命中半径 `max(11, pitch*0.5)` = 23）里用 `window.ferry` 的钩
    而 `shoal-01` 的 par 恰好是 1，所以"过拉"一步直接判完成（`done/curtain/busy` 全 true，`boat` 被
    `depart()` 清空）。规格 §4 写的是"点船（**或拖船到对岸**）= 一次渡河"——没到对岸就不属于那个手势：
    船回原位、一个人也不上岸。现在座位宽度跟着**角色尺寸**走（`min((waterW-30)/capacity, pitch*1.4)` 取整），
-   船体另外封顶在水宽的 60%，两码头之间必然剩下至少 40% 河面 = 真实行程（`js/view.js:124-131`）。
+   船体另外封顶在水宽的 60%，两码头之间必然剩下至少 40% 河面 = 真实行程（`js/view.js:290-294`）。
 2. **右岸的角色网格以水带为中心**：`bankBox[1] = { x: waterX0, w: waterW }` ⇒ 已过河的人站在航道正中、
    船体底下（截图里直接看得见），而这一列的中心 x 恰好等于画布中心。台架取"空白水面"用的是
    `(画布中心 x, 12% 高度)`，那个点离艄公的圆只有 8 px，落在 23 px 命中半径内 ⇒ `down()` 把它认成
    "按在角色上"，`up()` 的 `!wasAboard && !moved` 分支于是**合法地**把艄公装上了船。这条失败打印出来是
    `{"wBefore":1,"wAfter":1}` 却判 FAIL，因为 detail 只印 `trips`，而真的动了的是 `boat.length`。
-   现在右岸列以**右岸沙地**为中心（`js/view.js:144-161`，与命中用的 `bankRect` 同一条线），并且台架在
+   现在右岸列以**右岸沙地**为中心（`js/view.js:299-316`，与命中用的 `bankRect` 同一条线），并且台架在
    按下之前先用页面自己公布的 `reach()` 证明那个坐标既不在船体矩形内也不在任何角色的命中半径内
    （`tools/playtest.mjs:353-371`，多出来的那条 `the point about to be pressed really is open water`）。
    **没有放宽任何期望**：两条原断言原文保留，另加两条前提断言（`:368`、`:400`），`@pointer` 从 38 条变 40 条。
 
 同一类"画面与状态各说各话"的还有第三格：`frame()` 过去只在动画仍挂着时重绘，于是补间结束的**那一帧没人画**
 —— 河面冻结在"人还在船上"的最后一帧，而旁边面板写着"已在船 0/3"。现在动画集合变空时补画最后一帧
-（`js/view.js:483-493`）。这三格全在 view（像素与手势归它），**`js/core/*` 一条规则都没改**，
+（`js/view.js:733-760`）。这三格全在 view（像素与手势归它），**`js/core/*` 一条规则都没改**，
 `node --test` 前后都是 95 条、fail 0。
 
-**第四格只有重跑才会露出来**：`busy()` 说"补间结束了"用的是
-`performance.now() >= glide.until`，而 `roleAt()` 说"这个人还在船上"用的是**裸 `glide` 对象** ——
-后者要等下一次 rAF 才被置空。于是 `settle()`（等 `busy`）之后立刻问 `rolePoint(i)`，有大约一帧的
-窗口拿到的是"船上的座位"，而真正按下时人已经回到岸上 ⇒ 那一按谁也没命中，装船**静默失败**，
-后面整条认证路线一起崩（`@pointer` 曾以 1/2 的概率报 6 条失败，detail 长这样：
-`{"before":[],"after":[],"trips":2}`）。规矩因此是：**位置类查询与 `busy()` 必须共用同一条时钟判据**
-（现在都走 `glideNow()`，`js/view.js:192-194`）；只有绘制路径可以继续读裸 `glide`，因为那一帧本来就该画船。
-台架没有为此加 `sleep`，断言也没有放宽。
+**第四格只有重跑才会露出来**：`busy()`（补间结束了没有）与 `roleAt()`（这个人还在船上）必须读
+**同一条判据** —— 补间结束后到 rAF 把它置空之前有一帧的窗口，两个函数对同一时刻给出矛盾答案：
+台架 `settle()`（等 `busy`）之后立刻问 `rolePoint(i)`，那一问若落在窗口里，拿到的还是"船上的座位"，
+而真正按下时人已经回到岸上 ⇒ 那一按谁也没命中，装船**静默失败**，后面整条认证路线一起崩
+（`@pointer` 曾以 1/2 的概率报 6 条失败，detail 长这样：`{"before":[],"after":[],"trips":2}`）。
+规矩因此是：**位置类查询与 `busy()` 必须共用同一条判据**；只有绘制路径可以继续读裸 `glide`，
+因为那一帧本来就该画船。台架没有为此加 `sleep`，断言也没有放宽。
+
+这一格在并线后的实现里是**天然成立**的：补间的状态是 `t/dur` 形状，`busy()`（`js/view.js:822`）
+把 `glide` 算进去，`roleAt()`（`js/view.js:342`）读的是同一枚 `glide` ⇒ 两者不可能给出矛盾答案。
 
 ---
 
@@ -479,7 +481,7 @@ pitch 46、命中半径 `max(11, pitch*0.5)` = 23）里用 `window.ferry` 的钩
 ### 8.4 不暂停 `visibilitychange`
 
 headless Chrome 把自己报成 hidden。渡河的滑行动画、抖动与胜利卡片由同一个 rAF 循环驱动，
-一暂停测试就永远看不到通关，所以 `js/main.js:466` 显式不接这个事件（注释就地说明）。
+一暂停测试就永远看不到通关，所以 `js/main.js:595` 显式不接这个事件（注释就地说明）。
 
 ---
 
