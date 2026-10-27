@@ -5,3 +5,4 @@ dist/
 .electron-cache/
 _site/
 _scratch/
+_tmp-*
